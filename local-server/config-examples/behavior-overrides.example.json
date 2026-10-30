@@ -10,7 +10,8 @@
     "PlayerLimit": 1500,
     "MapUpdate.Threads": 4,
     "GM.LoginState": 0,
-    "GameType": 0
+    "GameType": 0,
+    "DisconnectToleranceInterval": 60
   },
   "authserver": {
     "BindIP": "127.0.0.1"
@@ -29,7 +30,11 @@
     "Playerbots.RandomBotArenaTeam5v5Count": 0,
     "Playerbots.RandomBotsPerInterval": 20,
     "Playerbots.BotActiveAlone": 10,
-    "Playerbots.botActiveAloneSmartScale": 1
+    "Playerbots.botActiveAloneSmartScale": 1,
+    "Playerbots.AutoPickTalentsForPlayerControlledBots": 0,
+    "Playerbots.RpgTargetSearchDistance": 150.0,
+    "Playerbots.CollectDetailedQuestStats": 0,
+    "Playerbots.ProbTeleToQuestGivers": 0
   },
   "auction_house": {
     "AuctionHouseBot.EnableSeller": 1,

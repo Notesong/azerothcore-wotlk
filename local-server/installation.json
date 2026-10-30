@@ -2,9 +2,9 @@
   "InstalledFor": "Solo play with Playerbots and AutoBalance",
   "Root": "C:\\Games\\AzerothCore",
   "CoreRepository": "https://github.com/mod-playerbots/azerothcore-wotlk.git",
-  "CoreBranch": "Playerbot",
-  "CoreCommit": "3f2969ddb0da42b48b4fca050c02b19163ba1e20",
-  "PlayerbotsCommit": "e88cc4099e69f35126b28942a412ca702d20453b",
+  "CoreBranch": "update/vesper-2026-10-30",
+  "CoreCommit": "25a0dd69555eb5d0f0e671c251979eae7f25d414",
+  "PlayerbotsCommit": "05a1f6fceb8a32aa879b13f5f48934c6e46a774c",
   "AutoBalanceCommit": "1d707cb61a0962ab01e4123681e2d3b66cc558a2",
   "Configuration": "RelWithDebInfo x64",
   "MySQL": "8.4.13",
@@ -29,11 +29,19 @@
   "MCPGatewayVersion": "0.29.0",
   "MCPTools": [
     "wow_status",
-    "wow_observe"
+    "wow_observe",
+    "wow_model_context"
   ],
   "RenderingClientBound": false,
   "AuctionHouseBotRepository": "https://github.com/azerothcore/mod-ah-bot.git",
   "AuctionHouseBotCommit": "c11d8318cbd8714a9980f9464f78e07d3d48a70a",
   "RandomBotTarget": 1000,
-  "AuctionCharacter": "Marketkeeper"
+  "AuctionCharacter": "Marketkeeper",
+  "CoreUpstreamCommit": "93333d6a9eb00fdf0179adde30da3c17618207d6",
+  "CoreUpstreamBranch": "Playerbot",
+  "PlayerbotsBranch": "update/vesper-2026-10-30",
+  "PlayerbotsUpstreamBranch": "master",
+  "LastUpstreamUpdateUTC": "2026-10-30T22:16:45.812676+00:00",
+  "SourceBackupBranch": "backup/vesper-2026-10-30",
+  "SourceUpdateBranch": "update/vesper-2026-10-30"
 }
