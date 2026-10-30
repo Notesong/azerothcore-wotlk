@@ -1,0 +1,71 @@
+{
+  "format": "manual-overrides/v1",
+  "not_a_live_configuration_file": true,
+  "worldserver": {
+    "BindIP": "127.0.0.1",
+    "Console.Enable": 0,
+    "Ra.Enable": 1,
+    "Ra.IP": "127.0.0.1",
+    "Ra.Port": 3443,
+    "PlayerLimit": 1500,
+    "MapUpdate.Threads": 4,
+    "GM.LoginState": 0,
+    "GameType": 0
+  },
+  "authserver": {
+    "BindIP": "127.0.0.1"
+  },
+  "playerbots": {
+    "Playerbots.MinRandomBots": 1000,
+    "Playerbots.MaxRandomBots": 1000,
+    "Playerbots.AddClassAccountPoolSize": 5,
+    "Playerbots.DisabledWithoutRealPlayer": 0,
+    "Playerbots.GroupInvitationPermission": 2,
+    "Playerbots.CommandServerPort": 0,
+    "Playerbots.RpgStatusProbWeight.OutdoorPvp": 0,
+    "Playerbots.RandomBotJoinBG": 0,
+    "Playerbots.RandomBotArenaTeam2v2Count": 0,
+    "Playerbots.RandomBotArenaTeam3v3Count": 0,
+    "Playerbots.RandomBotArenaTeam5v5Count": 0,
+    "Playerbots.RandomBotsPerInterval": 20,
+    "Playerbots.BotActiveAlone": 10,
+    "Playerbots.botActiveAloneSmartScale": 1
+  },
+  "auction_house": {
+    "AuctionHouseBot.EnableSeller": 1,
+    "AuctionHouseBot.EnableBuyer": 1,
+    "AuctionHouseBot.ItemsPerCycle": 100,
+    "AuctionHouseBot.DuplicatesCount": 3,
+    "AuctionHouseBot.DivisibleStacks": 0,
+    "AuctionHouseBot.ConsiderOnlyBotAuctions": 0,
+    "AuctionHouseBot.ProfessionItems": 1,
+    "AuctionHouseBot.TRACE_BUYER": 0
+  },
+  "auction_house_sql_settings": {
+    "Alliance": {
+      "minitems": 2000,
+      "maxitems": 2000
+    },
+    "Horde": {
+      "minitems": 2000,
+      "maxitems": 2000
+    },
+    "Neutral": {
+      "minitems": 500,
+      "maxitems": 500
+    },
+    "all_houses": {
+      "buyerbiddinginterval": 1,
+      "buyerbidsperinterval": 25,
+      "minpricewhite": 400,
+      "maxpricewhite": 600
+    }
+  },
+  "private_values_intentionally_omitted": [
+    "all database connection strings and credentials",
+    "game and administration logins",
+    "auction account/character numeric identities",
+    "Presence profile and thread identifiers",
+    "model credentials, private persona, memories and runtime settings"
+  ]
+}

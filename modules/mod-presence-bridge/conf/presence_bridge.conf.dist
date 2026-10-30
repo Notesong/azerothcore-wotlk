@@ -1,0 +1,4 @@
+# Local Presence bridge. Requires authenticated RA configured on 127.0.0.1.
+# Control is limited to module-owned headless sessions on this account.
+PresenceBridge.Account = "PRESENCE"
+PresenceBridge.AllowedCharacters = "Vesper,Acoreprobe"

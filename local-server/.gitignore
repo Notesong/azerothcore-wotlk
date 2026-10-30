@@ -1,0 +1,27 @@
+# Source only: do not add generated or private runtime material here.
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.log
+*.jsonl
+*.sqlite*
+*.db
+*.exe
+*.dll
+*.pdb
+*.obj
+*.sql
+local-settings.json
+database-admin.cnf
+server-admin.json
+agent-login.json
+Login Details.txt
+**/backups/
+*-integration/
+database/
+database-import/
+database-tmp/
+server/
+build/
+tools/
+logs/

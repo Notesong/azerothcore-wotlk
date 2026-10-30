@@ -1,0 +1,94 @@
+AzerothCore solo server
+
+Realm type: Normal/PvE. Bot battleground/arena participation is disabled.
+
+1. Double-click the green Start AzerothCore desktop icon; wait for "AzerothCore is ready".
+2. Open C:\Games\WoW\WotLK\Wow.exe.
+3. Use the account in Login Details.txt. The realm is AzerothCore Solo.
+4. When finished, exit the game and double-click the red Stop AzerothCore desktop icon.
+
+The game services run in the background independently of ChatGPT.exe and the launcher window.
+You may close ChatGPT after startup. Use the red Stop icon for a clean save/shutdown.
+Stop waits for the world server to finish saving before stopping the login server and MySQL.
+Server Status.cmd checks all three services; startup/shutdown windows close after success.
+If an operation fails, its window stays open with the error. Logs are in logs/.
+Stop SPP before starting this server: both use the normal WoW login and world ports.
+
+Bots
+The population target is 1,000 wandering bots, logged in gradually in batches.
+They stay online while the world server runs, even when you are not playing.
+Distant bots use rotating background activity and adaptive load scaling.
+Companions can be summoned by class, for example: .playerbots bot addclass priest
+After adding companions, use .playerbots bot init=auto * to match their level and gear to yours.
+Use .playerbots bot help for the bot command list. Your own alternate characters can also be used as bots.
+
+Economy
+Auction House Bot stocks all three markets and bids on reasonably priced player listings.
+Its dedicated offline character is Marketkeeper. Do not use that character to play.
+Targets: 2,000 Alliance / 2,000 Horde / 500 neutral auction stacks, filled gradually.
+Sales are not guaranteed. Successful auction gold uses the normal one-hour mail delay.
+Settings: server/configs/modules/mod_ahbot.conf and the world DB mod_auctionhousebot table.
+
+Difficulty
+AutoBalance scales dungeon and raid enemies to the party size, including bots.
+.ab mapstat shows the current scaling.
+.ab setoffset 1 makes encounters count one additional party member; .ab setoffset 0 resets it.
+Keep GM mode off during normal play: .gm off
+For finer changes, edit server\configs\modules\AutoBalance.conf, then enter .reload config in game.
+
+Configuration
+Bots: server\configs\modules\playerbots.conf
+Game settings and experience rates: server\configs\worldserver.conf
+Logs: logs\
+Data and characters: database\ (always stop the server before making a folder backup)
+
+This is a separate installation. SPP and its characters have not been migrated.
+The existing Wrath client already uses set realmlist 127.0.0.1.
+The server and database accept connections only from this computer.
+
+Installed components
+Playerbots AzerothCore core: Playerbot branch, 3f2969ddb0da42b48b4fca050c02b19163ba1e20
+Playerbots module: e88cc4099e69f35126b28942a412ca702d20453b
+AutoBalance module: 1d707cb61a0962ab01e4123681e2d3b66cc558a2
+MySQL 8.4.13 (localhost:3307), Boost 1.81, OpenSSL 3.5.9, CMake 3.31.12, Visual Studio 2022 Build Tools
+Server data: official guide's client-data v20, enUS
+
+The source and tools folders are used for future builds and database updates. Keep them.
+scripts\Build-Server.ps1 rebuilds the checked-out versions; it does not download source updates.
+scripts\Configure-Server.ps1 restores the initial configuration; avoid it after customizing settings.
+
+Vesper and Presence
+Vesper is a normal Blood Elf paladin on the separate PRESENCE account.
+Start the server first, then open Presence > Game Player > AzerothCore.
+Choose Start AzerothCore when ready. That button starts Presence's gameplay controller;
+it does not start the database or game server. Use Pause, Resume and Stop in the same panel.
+The saved native config already selects Vesper and his explicitly bound Presence profile.
+The AzerothCore tab and Full share the same controller; they are not separate gameplay loops.
+Existing body/social providers and models are preserved and can be edited in the new tab.
+Observation and conversation exposes the observation loop, social interval and reply cooldown.
+The panel also exposes the scene summary interval and optional image settings. Save changes,
+then restart the controller if the panel says its running settings differ from the saved values.
+These intervals control checks/cooldowns; they do not guarantee a model call on every tick.
+Presence's local process runs the gameplay loop between chat prompts while it is active.
+Movement and melee continue inside the server between model decisions. The bridge is still
+an expanding gameplay interface: vendors, trainers and equipment are supported. Item use,
+auction actions, taxis and corpse recovery still need more action support.
+
+Full currently keeps runtime notes and a short scene summary that reset on restart, plus
+optional debug event logs. It has no durable adventure Chronicle/replay yet. The dedicated
+Social controller has a separate durable journal/Chronicle; gameplay does not automatically
+become ordinary Presence Memory.
+
+The existing Local Context Gateway MCP server now provides read-only wow_status and wow_observe.
+Refresh that existing ChatGPT connection to load the new tools; no second connection is needed.
+Details: harness\README.md and Presence\working\docs\game-player-azerothcore.md.
+Optional conversation/area image triggers are configured, but a rendering client is not yet bound.
+In the AzerothCore tab, Optional event images lets you enter distinctive observer window title
+matches (comma or newline separated) and cooldowns. An empty title list means no capture,
+even with images enabled. Structured play works without a renderer. Observer images show
+that client's view, not automatically Vesper's camera; his headless session remains exclusive.
+
+Reference guides
+https://www.azerothcore.org/wiki/windows-core-installation
+https://github.com/mod-playerbots/mod-playerbots/wiki
+https://github.com/azerothcore/mod-autobalance

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vesper-wow": {
+      "command": "C:/Files/Programs/Codex/Presence/working/backend/.venv/Scripts/python.exe",
+      "args": ["-u", "C:/Games/AzerothCore/harness/run_mcp.py", "--character", "Vesper"]
+    }
+  }
+}
