@@ -154,7 +154,7 @@ check, instead of automatically resending an acceptance or reward choice.
 The server and Presence changes are installed. MCP's `live_preview` shows the new
 facts immediately; a quest dialog is empty until Vesper opens one normally.
 `last_request` changes after the next genuine model request. Start the controller
-in Presence when ready to test his choices; the saved pause remains in place.
+in Presence when ready to test his choices; installation preserves its stopped or paused setting.
 
 Remaining player-loop work includes targeted quest-item/consumable use, talent
 spending, dungeon Need/Greed/Pass choices, hearthstone/flight/bind actions, and
@@ -247,3 +247,45 @@ Full addon notes: [MaNGOSBot guide](C:/Games/AzerothCore/addons/Mangosbot/README
 - Stop the game server with `C:\Games\AzerothCore\Stop Server.cmd` to save characters.
 
 Full setup and behavior notes: [harness README](C:/Games/AzerothCore/harness/README.md).
+
+## Local Qwen body and attention
+
+Installed October 31, 2026. The body uses **Qwen3.5-4B**, alias
+`qwen3.5-4b-action`, at `http://127.0.0.1:8082/v1`, with thinking disabled.
+This dedicated endpoint leaves the main/helper model endpoints available for
+other helpers. The social provider/model is unchanged and still uses no reasoning.
+Separate ports allow separate model servers; they still share the computer's GPU and memory.
+
+1. Start the game server normally.
+2. Run [Start Qwen Body.cmd](C:/Games/AzerothCore/Start%20Qwen%20Body.cmd) if Qwen is offline.
+3. In Presence's AzerothCore panel, click **Start AzerothCore** when ready to play.
+   The controller was left stopped after installation; starting Qwen alone makes no game decisions.
+
+[Stop Qwen Body.cmd](C:/Games/AzerothCore/Stop%20Qwen%20Body.cmd) stops only this owned
+Qwen process. Stop/pause the controller first. Qwen runs independently of ChatGPT;
+the normal game-server Stop command remains responsible for saving the world.
+For runtime status, run `powershell -File scripts/Qwen-Body.ps1 -Action Status`
+from the AzerothCore folder. These helpers use fixed local executable/model paths.
+
+The observation interval is one second, not one model call per second. Deliberate
+party attacks/casts, danger, Aurenne moving away, a growing distance gap and useful
+action results can now wake the body planner. A selected target or being chased
+alone does not count as choosing to fight. Luna decides how to respond; these
+signals do not force an attack, heal or follow. Moon/tame guards remain active.
+Explicit model waits have bounded review deadlines; persistent follow keeps
+executing locally. Addon protocol messages no longer count as player conversation.
+Invalid/empty model output is reported as a failed decision, with bounded retry
+backoff, instead of appearing to be an intentional wait.
+
+The local body receives a smaller structured view and an action-specific JSON
+schema. Critical units, protection, spells and open menus remain available;
+nearby-unit indexes and explicitly scoped item defaults reduce repetition.
+Images remain a social/observer feature and are omitted from this text-only body.
+`wow_model_context` live previews select this local view from the saved body
+configuration; `last_request` retains the actual dynamic context of a genuine call.
+
+In read-only samples with his configured continuity, Qwen took about **3.4–4.1
+seconds** per decision; startup and GPU contention can take longer. The measured
+dynamic context was **36.6% smaller**. The 4B model is experimental: it made some
+sensible choices and an invalid NPC interaction in synthetic tests. Normal server
+validation and the hard Moon guard remain in place. These probes executed no game actions.

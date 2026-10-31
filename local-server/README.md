@@ -49,6 +49,17 @@ controller or providers or changing global import paths. Live previews show the
 current projection; recorded requests and Moon incidents retain original inputs.
 See `Vesper Commands.md` for inspection and equipment guidance notes.
 
+The October 31 local-body update adds a dedicated Qwen3.5-4B launcher on loopback
+port 8082, with thinking disabled and strict process ownership for shutdown.
+`Start Qwen Body.cmd` starts that model server independently of ChatGPT; starting
+Presence's controller remains a separate choice. It leaves other helper endpoints
+and the social model unchanged. Model files, runtime logs and ownership state
+under `local-qwen-private/` are excluded from this source backup.
+The private Presence changes add party/distance attention, explicit invalid-output
+reporting, addon-message filtering and a compact local body view/schema. MCP live
+previews use the same pure local projection helpers when configured for that body.
+See `Vesper Commands.md` for startup, inspection and measured limitations.
+
 The quest-dialog/bag-capacity update was built and installed on October 31, 2026.
 It adds packet-backed NPC quest choices and normal turn-in transitions, with the
 matching Presence source installed separately from its private repository. Live

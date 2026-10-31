@@ -203,6 +203,15 @@ No old request payloads are reconstructed. Recording begins with the next real
 model request after this update; a paused loop can have no recorded request.
 Neither inspection mode starts a model or resumes gameplay.
 
+When the saved native body configuration uses a dedicated local action endpoint,
+the body preview uses `local_gameplay` projection and reports
+`local_gameplay_focus/v1`. It loads the fixed pure attention/focus helpers alongside
+gear labels, without importing providers or the controller. The compact view keeps
+critical units and uses explicit nearby indexes, scoped defaults and coverage
+counters for repeated facts. It does not forward the saved config, credentials or
+user instructions. A recorded request still shows its original dynamic input;
+changing the current model never rewrites a historical request.
+
 These tools are read-only and never attach, move or speak for the character.
 Any later action/override interface should coordinate a pause and handoff with
 the local controller first. The current chat's tool list still needs the existing

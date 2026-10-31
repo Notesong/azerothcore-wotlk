@@ -77,7 +77,11 @@ Being online is separate from his model controller: use Start or Resume in Prese
 when you want him to make decisions and talk. Server startup preserves the model pause.
 The saved native config already selects Vesper and his explicitly bound Presence profile.
 The AzerothCore tab and Full share the same controller; they are not separate gameplay loops.
-Existing body/social providers and models are preserved and can be edited in the new tab.
+The body now uses local Qwen3.5-4B on its own endpoint: http://127.0.0.1:8082/v1.
+Thinking is disabled; the social model and other helper endpoints are unchanged.
+Run Start Qwen Body.cmd before starting the controller if Qwen is offline.
+Use Stop Qwen Body.cmd to stop only that model server, after stopping the controller.
+Separate model servers share GPU/memory. Details and attention behavior: Vesper Commands.md.
 Observation and conversation exposes the observation loop, social interval and reply cooldown.
 The panel also exposes the scene summary interval and optional image settings. Save changes,
 then restart the controller if the panel says its running settings differ from the saved values.
@@ -92,7 +96,8 @@ optional debug event logs. It has no durable adventure Chronicle/replay yet. The
 Social controller has a separate durable journal/Chronicle; gameplay does not automatically
 become ordinary Presence Memory.
 
-The existing Local Context Gateway MCP server now provides read-only wow_status and wow_observe.
+The existing Local Context Gateway MCP server provides read-only wow_status, wow_observe
+and wow_model_context (live previews and recorded body/social request context).
 Refresh that existing ChatGPT connection to load the new tools; no second connection is needed.
 Details: harness\README.md and Presence\working\docs\game-player-azerothcore.md.
 Optional conversation/area image triggers are configured, but a rendering client is not yet bound.

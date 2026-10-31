@@ -217,27 +217,31 @@ def _projection(presence_root: Path) -> Callable[..., dict[str, Any]]:
         raise ValueError("projection_unavailable")
     normal_import = builtins.__import__
     projection_builtins = vars(builtins).copy()
-    gear_module: ModuleType | None = None
+    helper_modules: dict[str, ModuleType] = {}
+    helper_paths = {
+        "tools.game_player_native_gear": "game_player_native_gear.py",
+        "tools.game_player_native_attention": "game_player_native_attention.py",
+        "tools.game_player_native_focus": "game_player_native_focus.py",
+    }
 
     def projection_import(name: str, globals: Any = None, locals: Any = None,
                           fromlist: Any = (), level: int = 0) -> Any:
-        nonlocal gear_module
-        if name != "tools.game_player_native_gear" or level != 0:
+        if name not in helper_paths or level != 0:
             return normal_import(name, globals, locals, fromlist, level)
-        if gear_module is None:
-            # Resolve this one pure sibling independently of the MCP process's
+        if name not in helper_modules:
+            # Resolve only these fixed pure siblings independently of the MCP process's
             # import path. Never import a tools package, Full, or a provider.
-            helper_path = path.with_name("game_player_native_gear.py")
+            helper_path = path.with_name(helper_paths[name])
             with helper_path.open("rb") as handle:
                 helper_source = handle.read(MAX_CAPTURE_BYTES + 1)
             if len(helper_source) > MAX_CAPTURE_BYTES:
                 raise ValueError("projection_unavailable")
-            private = ModuleType("presence_readonly_native_gear")
+            private = ModuleType("presence_readonly_" + helper_path.stem)
             private.__file__ = str(helper_path)
             private.__dict__["__builtins__"] = projection_builtins
             exec(compile(helper_source, str(helper_path), "exec"), private.__dict__)
-            gear_module = private
-        return gear_module
+            helper_modules[name] = private
+        return helper_modules[name]
 
     projection_builtins["__import__"] = projection_import
     namespace: dict[str, Any] = {"__name__": "presence_readonly_native_projection", "__file__": str(path),
@@ -434,8 +438,17 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
         raw = client.observe(character, after_event_id=0)
         if not isinstance(raw, dict):
             return unavailable("observation_failed")
+        projection_mode = "gameplay" if lane == "body" else "social"
+        if lane == "body":
+            saved, _ = _read_json(presence_root / "local" / "game_player.config.json")
+            identity = saved.get("session_state") if isinstance(saved.get("session_state"), dict) else {}
+            if (saved.get("game_backend") == "azerothcore" and identity.get("controlled_character") == character
+                    and saved.get("provider") in {"local", "openai_compatible"}
+                    and isinstance(saved.get("native_action_base_url"), str) and saved["native_action_base_url"].strip()):
+                projection_mode = "local_gameplay"
         result["preview"] = {"basis": "fresh_bridge_snapshot", "is_actual_request": False,
-                             "native_observation": compact(raw, "gameplay" if lane == "body" else "social"),
+                             "projection_mode": projection_mode,
+                             "native_observation": compact(raw, projection_mode),
                              "unavailable_sections": ["controller_enrichment", "session_notes", "recent_chat_transcript",
                                                       "scene_ledger", "persona", "images"]}
         result["available"] = True
