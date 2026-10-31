@@ -447,7 +447,6 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
                     and isinstance(saved.get("native_action_base_url"), str) and saved["native_action_base_url"].strip()):
                 projection_mode = "local_gameplay"
         result["preview"] = {"basis": "fresh_bridge_snapshot", "is_actual_request": False,
-                             "projection_mode": projection_mode,
                              "native_observation": compact(raw, projection_mode),
                              "unavailable_sections": ["controller_enrichment", "session_notes", "recent_chat_transcript",
                                                       "scene_ledger", "persona", "images"]}

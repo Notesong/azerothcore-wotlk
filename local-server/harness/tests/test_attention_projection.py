@@ -69,7 +69,9 @@ class AttentionProjectionTests(unittest.TestCase):
             body = inspector.model_context(source='live_preview')
             social = inspector.model_context(lane='social', source='live_preview')
             self.assertTrue(body['available'])
-            self.assertEqual(body['preview']['projection_mode'], 'local_gameplay')
+            # Existing gateway preview metadata has a fixed allowlist. The view
+            # identifies its format; an extra mode field would falsely flag truncation.
+            self.assertNotIn('projection_mode', body['preview'])
             self.assertEqual(body['preview']['native_observation']['mode'], 'local_gameplay')
             self.assertEqual(social['preview']['native_observation']['mode'], 'social')
             self.assertNotIn('DO_NOT_FORWARD', json.dumps(body))

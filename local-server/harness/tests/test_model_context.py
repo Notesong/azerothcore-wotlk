@@ -174,7 +174,9 @@ class ModelContextTests(unittest.TestCase):
         projection = _projection(self.inspector.presence_root)
         for lane, mode in (("body", "gameplay"), ("social", "social")):
             with self.subTest(lane=lane):
-                value = self.inspector.model_context(lane=lane, source="live_preview")
+                # Exercise the default projection independently of live model settings.
+                with patch("presence_acore.model_context._read_json", return_value=({}, "no_recorded_request")):
+                    value = self.inspector.model_context(lane=lane, source="live_preview")
                 self.assertTrue(value["available"])
                 preview = value["preview"]
                 self.assertEqual(preview["native_observation"], projection(observation, mode))
