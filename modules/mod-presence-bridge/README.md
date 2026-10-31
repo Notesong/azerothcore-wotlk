@@ -240,11 +240,62 @@ Base vendor sale prices are marked estimates; the actual sale receipt is authori
   Returns actual acquired `items`, `copper`, `skipped_slots` and `partial`.
   Reserved rolls and other players' loot are not overridden. Full bags can produce
   `loot_not_stored` or a partial result.
-- `accept_quest`, `complete_quest`, `reward_quest`: `target_guid`, `quest_id`,
-  optional `reward_index` for rewards. Normal questgiver handlers are used.
-  Accept results are verified against live quest status; reward results use the
-  normal quest-completion receipt, including repeatable quests. `complete_quest`
-  opens the normal turn-in dialog and does not force quest completion.
+- `query_quest`: explicit `target_guid`, `quest_id` from the current quest menu.
+  Opens the normal details window. This uses the ordinary query handler, which
+  can accept a quest carrying the game's auto-accept flag; it is not a guaranteed
+  read-only operation. Hidden quest rewards remain hidden.
+- `accept_quest`: explicit `target_guid`, `quest_id` matching the current details
+  window. Uses the normal accept handler and verifies newly active quest-log
+  membership. Tracking quests that immediately complete through the ordinary core
+  path are reported separately. An already active quest is not a new acceptance.
+- `complete_quest`: explicit `target_guid`, `quest_id` from the current quest menu.
+  Opens the normal turn-in window, either `request_items` or `offer_reward`.
+  It does not force completion, hand over items or choose a reward.
+- `request_reward`: explicit `target_guid`, `quest_id` matching the current
+  `request_items` window. Advances through the ordinary request-reward handler.
+  That handler can mark the quest complete when its normal objectives permit it;
+  the bridge verifies that an actual matching reward offer was received.
+- `reward_quest`: explicit `target_guid`, `quest_id` and `reward_index` matching the
+  current `offer_reward` window. Reward indices are zero-based and must be chosen
+  explicitly, including `0` when there are no choices. The advertised item/count
+  must still match that reward slot. The normal handler checks requirements,
+  inventory and costs; completion requires a fresh normal quest-reward receipt,
+  including for repeatable quests. Results report actual carried-item and money
+  changes, rather than assuming displayed rewards were received unchanged.
+
+The core can automatically reward a tracking quest while accepting or advancing
+its normal dialog, without sending a public reward packet. These results use a
+synchronous, action/character/quest-bound `OnPlayerCompleteQuest` callback, which
+this core fires after `RewardQuest` finishes. `quest_reward_hook` and
+`tracking_quest_rewarded` report that outcome separately from `reward_receipt`;
+repeated tracking rewards do not rely on a sticky previously-rewarded flag.
+
+Quest actions require the same visible, normally interactable NPC or questgiver
+game object within interaction range and line of sight. Interact first to obtain
+its current menu. Menus expire after two minutes; another dialog, a normal close,
+or a vendor/trainer window supersedes them. Verified synchronous quest operations
+return `completed` for the requested window/action transition; `phase_after`,
+`accepted_quest` and `reward_receipt` distinguish opening a window from accepting
+or receiving rewards. A failed verification retains actual state and money facts.
+
+`quest_dialog` exposes the current actual client window: bound `target_guid` and
+`quest_id`, `phase`, availability/staleness, revision, clipped text, costs and
+requirements, and at most six choice/four fixed rewards with rich item facts.
+`rewards_hidden` and `rewards_visible` distinguish hidden or not-yet-offered
+rewards from a quest with no reward. Displayed money/XP come from the actual
+packet, including script adjustments; hidden values are never backfilled from
+templates. `available_quests` contains at most 64 current advertised rows, each
+bound to its source with live status and start/turn-in relation. Visible questgiver
+units/objects expose their normal quest status and related IDs from Vesper's own
+quest log; the bridge does not discover questgivers elsewhere in the world.
+Logged objectives include their known creature/game-object entry, type and text.
+
+`bag_capacity` reports the backpack and all four equipped bag positions, including
+empty bag slots, with total/used/free space. `general_free_slots` excludes specialty
+bags, whose free slots cannot hold arbitrary rewards. Item facts identify bags,
+their container size, bag-family restrictions and maximum stack size. Equipping
+a carried bag uses the existing `equip_item`, optionally naming slot 19 through 22;
+the normal inventory handler applies bag replacement and storage restrictions.
 
 Snapshots are bounded: 64 nearby units, 64 objects, 200 inventory entries, 256
 active non-passive spells, and 64 events per read from a 128-event ring. Bounds

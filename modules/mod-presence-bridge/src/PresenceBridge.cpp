@@ -29,6 +29,7 @@
 #include "Opcodes.h"
 #include "PathGenerator.h"
 #include "Player.h"
+#include "PlayerScript.h"
 #include "PresenceCommercePolicy.h"
 #include "PresenceGuardTelemetry.h"
 #include "PresenceQuestCommand.h"
@@ -129,18 +130,53 @@ Json::object PositionOf(WorldObject const* object)
         {"z", object->GetPositionZ()}, {"orientation", object->GetOrientation()}};
 }
 
+char const* QuestStatusName(QuestStatus status)
+{
+    switch (status)
+    {
+        case QUEST_STATUS_NONE: return "none";
+        case QUEST_STATUS_COMPLETE: return "complete";
+        case QUEST_STATUS_INCOMPLETE: return "incomplete";
+        case QUEST_STATUS_FAILED: return "failed";
+        case QUEST_STATUS_REWARDED: return "rewarded";
+        default: return "unknown";
+    }
+}
+
+char const* QuestGiverStatusName(QuestGiverStatus status)
+{
+    switch (status)
+    {
+        case DIALOG_STATUS_NONE: return "none";
+        case DIALOG_STATUS_UNAVAILABLE: return "unavailable";
+        case DIALOG_STATUS_LOW_LEVEL_AVAILABLE: return "low_level_available";
+        case DIALOG_STATUS_LOW_LEVEL_REWARD_REP: return "low_level_repeatable_reward";
+        case DIALOG_STATUS_LOW_LEVEL_AVAILABLE_REP: return "low_level_repeatable_available";
+        case DIALOG_STATUS_INCOMPLETE: return "incomplete";
+        case DIALOG_STATUS_REWARD_REP: return "repeatable_reward";
+        case DIALOG_STATUS_AVAILABLE_REP: return "repeatable_available";
+        case DIALOG_STATUS_AVAILABLE: return "available";
+        case DIALOG_STATUS_REWARD2: return "reward";
+        case DIALOG_STATUS_REWARD: return "reward";
+        default: return "unknown";
+    }
+}
+
 Json::object UnitState(Unit const* unit)
 {
     Json::array services;
     bool vendor = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_VENDOR);
     bool trainer = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_TRAINER);
     bool repair = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_REPAIR);
+    bool questgiver = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
     if (vendor)
         services.emplace_back("vendor");
     if (trainer)
         services.emplace_back("trainer");
     if (repair)
         services.emplace_back("repair");
+    if (questgiver)
+        services.emplace_back("questgiver");
     Json::array casts;
     for (uint32 slot = CURRENT_GENERIC_SPELL; slot < CURRENT_MAX_SPELL; ++slot)
         if (Spell* spell = unit->GetCurrentSpell(slot); spell && spell->getState() != SPELL_STATE_FINISHED)
@@ -161,6 +197,7 @@ Json::object UnitState(Unit const* unit)
         {"alive", unit->IsAlive()}, {"in_combat", unit->IsInCombat()},
         {"is_player", unit->IsPlayer()}, {"npc_flags", uint32(unit->GetNpcFlags())},
         {"services", std::move(services)}, {"is_vendor", vendor}, {"is_trainer", trainer}, {"can_repair", repair},
+        {"is_questgiver", questgiver},
         {"moving", unit->isMoving()}, {"selected_target_guid", std::to_string(unit->GetTarget().GetRawValue())},
         {"attack_victim_guid", unit->GetVictim() ? std::to_string(unit->GetVictim()->GetGUID().GetRawValue()) : "0"},
         {"channel_spell_id", unit->GetUInt32Value(UNIT_CHANNEL_SPELL)},
@@ -210,6 +247,8 @@ Json::object ItemFacts(Player* player, ItemTemplate const* info, Item* item = nu
         {"required_skill", info->RequiredSkill}, {"required_skill_rank", info->RequiredSkillRank},
         {"required_spell", info->RequiredSpell}, {"required_class_mask", info->AllowableClass},
         {"required_race_mask", info->AllowableRace}, {"container_slots", info->ContainerSlots},
+        {"bag_family", info->BagFamily}, {"max_stack", info->GetMaxStackSize()},
+        {"is_bag", info->Class == ITEM_CLASS_CONTAINER || info->Class == ITEM_CLASS_QUIVER},
         {"sell_price", info->SellPrice}, {"sell_price_is_estimate", true}, {"buy_count", info->BuyCount},
         {"equippable", info->InventoryType != INVTYPE_NON_EQUIP},
         {"is_quest", info->Class == ITEM_CLASS_QUEST || player->HasQuestForItem(info->ItemId)},
@@ -281,12 +320,60 @@ Json::object ItemFacts(Player* player, ItemTemplate const* info, Item* item = nu
     return result;
 }
 
+Json::object BagCapacity(Player* player)
+{
+    uint32 backpackSlots = INVENTORY_SLOT_ITEM_END - INVENTORY_SLOT_ITEM_START;
+    uint32 backpackUsed = 0;
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        if (player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            ++backpackUsed;
+    uint32 total = backpackSlots;
+    uint32 used = backpackUsed;
+    uint32 generalFree = backpackSlots - backpackUsed;
+    Json::array bags;
+    for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
+    {
+        Bag* bag = player->GetBagByPos(slot);
+        uint32 slots = bag ? std::min(bag->GetBagSize(), uint32(MAX_BAG_SIZE)) : 0;
+        uint32 occupied = 0;
+        for (uint32 index = 0; index < slots; ++index)
+            if (bag->GetItemByPos(uint8(index)))
+                ++occupied;
+        ItemTemplate const* info = bag ? bag->GetTemplate() : nullptr;
+        bool general = info && info->Class == ITEM_CLASS_CONTAINER && info->SubClass == ITEM_SUBCLASS_CONTAINER;
+        bags.emplace_back(Json::object{{"equipment_slot", slot}, {"slot_name", EquipmentSlotName(slot)},
+            {"empty", !bag}, {"bag_guid", bag ? std::to_string(bag->GetGUID().GetRawValue()) : "0"},
+            {"total_slots", slots}, {"used_slots", occupied}, {"free_slots", slots - occupied},
+            {"general_purpose", general}, {"bag_family", info ? info->BagFamily : 0}});
+        total += slots;
+        used += occupied;
+        if (general)
+            generalFree += slots - occupied;
+    }
+    return {{"total_slots", total}, {"used_slots", used}, {"free_slots", total - used},
+        {"general_free_slots", generalFree},
+        {"backpack", Json::object{{"bag", INVENTORY_SLOT_BAG_0}, {"total_slots", backpackSlots},
+            {"used_slots", backpackUsed}, {"free_slots", backpackSlots - backpackUsed}}},
+        {"bags", std::move(bags)}};
+}
+
 struct CommerceMenu
 {
     ObjectGuid source;
     Json::array rows;
     uint32 total = 0;
     uint32 page = 0;
+    uint64 revision = 0;
+    std::chrono::steady_clock::time_point opened;
+};
+
+struct QuestFrame
+{
+    ObjectGuid source;
+    uint32 quest = 0;
+    std::string phase;
+    Json::object fields;
+    Json::array rows;
     uint64 revision = 0;
     std::chrono::steady_clock::time_point opened;
 };
@@ -362,6 +449,8 @@ struct GuardActionContext
     uint64 observedSequence = 0;
     Json::array interventions;
     uint32 dropped = 0;
+    uint32 quest = 0;
+    bool questRewarded = false;
 };
 
 // Only synchronous hooks on this action's thread may claim its request identity.
@@ -499,7 +588,8 @@ public:
                 return Response(request, true, {{"protocol", 1}, {"operations", Json::array{
                     "observe", "action", "action_result", "capabilities", "attach", "detach"}},
                     {"actions", Json::array{"say", "emote", "move_to", "stop", "follow", "target",
-                        "attack", "cast", "interact", "loot", "accept_quest", "complete_quest", "reward_quest",
+                        "attack", "cast", "interact", "loot", "query_quest", "accept_quest", "complete_quest",
+                        "request_reward", "reward_quest",
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "gossip_select",
                         "vendor_buyback"}},
@@ -633,6 +723,293 @@ public:
         _actors.clear();
     }
 
+    void QuestRewarded(Player* player, Quest const* quest)
+    {
+        GuardActionContext* context = CurrentGuardAction;
+        if (context && player && quest && context->owner == player->GetGUID()
+            && context->quest == quest->GetQuestId())
+        {
+            context->questRewarded = true;
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            for (auto* frames : {&_questMenus, &_questDialogs})
+                if (auto found = frames->find(player->GetSession()); found != frames->end()
+                    && found->second.quest == quest->GetQuestId())
+                    frames->erase(found);
+        }
+    }
+
+    void ClearQuestFrames(WorldSession* session)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        _questMenus.erase(session);
+        _questDialogs.erase(session);
+    }
+
+    Json::array ReadQuestItems(WorldPacket& packet, bool choices, uint32 maximum)
+    {
+        uint32 count;
+        packet >> count;
+        if (count > maximum)
+            throw std::runtime_error("Quest item count exceeds the normal window limit");
+        Json::array items;
+        for (uint32 index = 0; index < count; ++index)
+        {
+            uint32 item, amount, display;
+            packet >> item >> amount >> display;
+            Json::object row{{"item_id", item}, {"count", amount}, {"display_id", display}};
+            if (choices)
+                row["reward_index"] = index;
+            items.emplace_back(std::move(row));
+        }
+        return items;
+    }
+
+    bool CaptureQuestFrame(WorldSession* session, WorldPacket const& packet)
+    {
+        try
+        {
+            WorldPacket copy(packet);
+            QuestFrame frame;
+            copy >> frame.source;
+            if (frame.source.IsPlayer())
+            {
+                ClearQuestFrames(session);
+                return false; // Shared quests have their existing separate confirmation path.
+            }
+            frame.opened = std::chrono::steady_clock::now();
+            bool menu = packet.GetOpcode() == SMSG_GOSSIP_MESSAGE
+                || packet.GetOpcode() == SMSG_QUESTGIVER_QUEST_LIST;
+            if (menu)
+            {
+                frame.phase = "menu";
+                uint32 count;
+                if (packet.GetOpcode() == SMSG_GOSSIP_MESSAGE)
+                {
+                    uint32 menuId, textId;
+                    copy >> menuId >> textId >> count;
+                    if (count > 64)
+                        throw std::runtime_error("Gossip option count exceeds the bridge window limit");
+                    for (uint32 index = 0; index < count; ++index)
+                    {
+                        uint32 option, cost;
+                        uint8 icon, coded;
+                        std::string text, confirmation;
+                        copy >> option >> icon >> coded >> cost >> text >> confirmation;
+                    }
+                    copy >> count;
+                }
+                else
+                {
+                    std::string greeting;
+                    uint32 delay, emote;
+                    uint8 size;
+                    copy >> greeting >> delay >> emote >> size;
+                    count = size;
+                }
+                if (count > 64)
+                    throw std::runtime_error("Quest menu exceeds the bridge window limit");
+                for (uint32 index = 0; index < count; ++index)
+                {
+                    uint32 quest, icon, flags;
+                    int32 level;
+                    uint8 repeatable;
+                    std::string title;
+                    copy >> quest >> icon >> level >> flags >> repeatable >> title;
+                    frame.rows.emplace_back(Json::object{{"id", quest}, {"icon", icon},
+                        {"level", level}, {"flags", flags}, {"repeatable", repeatable != 0},
+                        {"title", title.substr(0, 256)}});
+                }
+            }
+            else
+            {
+                bool details = packet.GetOpcode() == SMSG_QUESTGIVER_QUEST_DETAILS;
+                if (details)
+                {
+                    ObjectGuid divider;
+                    copy >> divider;
+                }
+                std::string title, text, objectives;
+                copy >> frame.quest >> title >> text;
+                frame.fields["title"] = title.substr(0, 256);
+                frame.fields["text"] = text.substr(0, 4096);
+                frame.fields["text_truncated"] = text.size() > 4096;
+                uint32 flags, suggested;
+                if (details)
+                {
+                    frame.phase = "details";
+                    uint8 accept, finished;
+                    copy >> objectives >> accept >> flags >> suggested >> finished;
+                    frame.fields["activate_accept"] = accept != 0;
+                    frame.fields["objective_text"] = objectives.substr(0, 2048);
+                    frame.fields["objective_text_truncated"] = objectives.size() > 2048;
+                }
+                else if (packet.GetOpcode() == SMSG_QUESTGIVER_OFFER_REWARD)
+                {
+                    frame.phase = "offer_reward";
+                    uint8 next;
+                    uint32 emotes;
+                    copy >> next >> flags >> suggested >> emotes;
+                    if (emotes > QUEST_EMOTE_COUNT)
+                        throw std::runtime_error("Quest reward emote count exceeds the normal limit");
+                    for (uint32 index = 0; index < emotes; ++index)
+                    {
+                        uint32 delay, emote;
+                        copy >> delay >> emote;
+                    }
+                }
+                else
+                {
+                    frame.phase = "request_items";
+                    uint32 unknown, emote, close, money, complete;
+                    copy >> unknown >> emote >> close >> flags >> suggested >> money;
+                    frame.fields["money_required"] = money;
+                    frame.fields["required_items"] = ReadQuestItems(copy, false, QUEST_ITEM_OBJECTIVES_COUNT);
+                    copy >> complete;
+                    frame.fields["can_complete"] = complete == 3;
+                }
+                frame.fields["flags"] = flags;
+                frame.fields["rewards_hidden"] = details && (flags & QUEST_FLAGS_HIDDEN_REWARDS) != 0;
+                frame.fields["rewards_visible"] = frame.phase != "request_items"
+                    && !frame.fields.at("rewards_hidden").as_bool();
+                frame.fields["suggested_players"] = suggested;
+                if (frame.phase == "offer_reward")
+                    frame.fields["can_complete"] = true;
+                if (frame.phase != "request_items")
+                {
+                    frame.fields["choice_rewards"] = ReadQuestItems(copy, true, QUEST_REWARD_CHOICES_COUNT);
+                    frame.fields["fixed_rewards"] = ReadQuestItems(copy, false, QUEST_REWARDS_COUNT);
+                    int32 money;
+                    uint32 xp;
+                    copy >> money >> xp;
+                    frame.fields["money_reward"] = money > 0 ? uint32(money) : 0;
+                    frame.fields["money_required"] = money < 0 ? uint32(-int64(money)) : 0;
+                    frame.fields["xp_reward"] = xp;
+                }
+                frame.rows.emplace_back(Json::object{{"id", frame.quest}, {"title", title.substr(0, 256)},
+                    {"icon", details ? 2 : 4}});
+            }
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(session))
+                return false;
+            frame.revision = ++_questFrameSequence;
+            _vendorMenus.erase(session);
+            _trainerMenus.erase(session);
+            _questMenus[session] = frame;
+            if (menu)
+                _questDialogs.erase(session);
+            else
+                _questDialogs[session] = std::move(frame);
+            return true;
+        }
+        catch (std::exception const&)
+        {
+            ClearQuestFrames(session);
+            return false;
+        }
+    }
+
+    std::optional<QuestFrame> CurrentQuestFrame(WorldSession* session, bool dialog)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto const& frames = dialog ? _questDialogs : _questMenus;
+        auto found = frames.find(session);
+        return found == frames.end() ? std::nullopt : std::optional<QuestFrame>(found->second);
+    }
+
+    WorldObject* QuestSource(Player* player, ObjectGuid guid)
+    {
+        WorldObject* source = ObjectAccessor::GetWorldObject(*player, guid);
+        if (!source || (!source->IsCreature() && !source->IsGameObject()) || !player->CanSeeOrDetect(source)
+            || !player->IsWithinDistInMap(source, INTERACTION_DISTANCE) || !player->IsWithinLOSInMap(source)
+            || !player->CanInteractWithQuestGiver(source))
+            return nullptr;
+        return source;
+    }
+
+    bool QuestFrameAvailable(Player* player, QuestFrame const& frame)
+    {
+        return std::chrono::steady_clock::now() - frame.opened <= std::chrono::minutes(2)
+            && QuestSource(player, frame.source);
+    }
+
+    Json::object QuestRelations(Player* player, WorldObject* source)
+    {
+        Json::array turnIns;
+        for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            if (uint32 quest = player->GetQuestSlotQuestId(slot); quest && source->hasInvolvedQuest(quest))
+                turnIns.emplace_back(quest);
+        QuestGiverStatus status = player->GetQuestDialogStatus(source);
+        return {{"quest_status", uint32(status)}, {"quest_status_name", QuestGiverStatusName(status)},
+            {"turn_in_quest_ids", std::move(turnIns)}};
+    }
+
+    Json::value QuestDialogSnapshot(Player* player)
+    {
+        auto frame = CurrentQuestFrame(player->GetSession(), true);
+        if (!frame)
+            return nullptr;
+        Json::object result = frame->fields;
+        bool available = QuestFrameAvailable(player, *frame);
+        result["target_guid"] = std::to_string(frame->source.GetRawValue());
+        result["quest_id"] = frame->quest;
+        result["phase"] = frame->phase;
+        result["available"] = available;
+        result["stale"] = !available;
+        result["revision"] = frame->revision;
+        result["quest_status"] = uint32(player->GetQuestStatus(frame->quest));
+        result["quest_status_name"] = QuestStatusName(player->GetQuestStatus(frame->quest));
+        for (char const* key : {"choice_rewards", "fixed_rewards"})
+        {
+            Json::array enriched;
+            if (auto rows = result.if_contains(key); rows && rows->is_array())
+                for (auto const& value : rows->as_array())
+                {
+                    Json::object row = value.as_object();
+                    if (ItemTemplate const* info = sObjectMgr->GetItemTemplate(Unsigned(row, "item_id")))
+                    {
+                        Json::object facts = ItemFacts(player, info);
+                        for (auto const& field : row)
+                            facts[field.key()] = field.value();
+                        row = std::move(facts);
+                    }
+                    enriched.emplace_back(std::move(row));
+                }
+            result[key] = std::move(enriched);
+        }
+        if (auto required = result.if_contains("required_items"); required && required->is_array())
+            for (auto& value : required->as_array())
+            {
+                value.as_object()["current"] = player->GetItemCount(Unsigned(value.as_object(), "item_id"), false);
+                if (ItemTemplate const* info = sObjectMgr->GetItemTemplate(Unsigned(value.as_object(), "item_id")))
+                    value.as_object()["name"] = info->Name1;
+            }
+        return result;
+    }
+
+    Json::array QuestMenuSnapshot(Player* player)
+    {
+        Json::array result;
+        auto frame = CurrentQuestFrame(player->GetSession(), false);
+        if (!frame)
+            return result;
+        bool available = QuestFrameAvailable(player, *frame);
+        WorldObject* source = available ? QuestSource(player, frame->source) : nullptr;
+        for (auto const& value : frame->rows)
+        {
+            Json::object row = value.as_object();
+            uint32 quest = Unsigned(row, "id");
+            bool start = source && source->hasQuest(quest);
+            bool turnIn = source && source->hasInvolvedQuest(quest);
+            row["target_guid"] = std::to_string(frame->source.GetRawValue());
+            row["quest_status"] = uint32(player->GetQuestStatus(quest));
+            row["quest_status_name"] = QuestStatusName(player->GetQuestStatus(quest));
+            row["relation"] = start ? (turnIn ? "both" : "start") : (turnIn ? "turn_in" : "none");
+            row["available"] = available;
+            result.emplace_back(std::move(row));
+        }
+        return result;
+    }
+
     void CaptureCommerceMenu(WorldSession* session, WorldPacket const& packet, bool trainer)
     {
         try
@@ -691,6 +1068,8 @@ public:
             if (found != target.end() && found->second.source == menu.source)
                 menu.page = found->second.page;
             target[session] = std::move(menu);
+            _questMenus.erase(session);
+            _questDialogs.erase(session);
         }
         catch (std::exception const&)
         {
@@ -811,7 +1190,15 @@ public:
                 event = CapturePartyInvite(session, packet);
                 break;
             case SMSG_GOSSIP_MESSAGE:
+                CaptureQuestFrame(session, packet);
                 event["type"] = "gossip";
+                break;
+            case SMSG_GOSSIP_COMPLETE:
+                ClearQuestFrames(session);
+                return;
+            case SMSG_QUESTGIVER_QUEST_LIST:
+                CaptureQuestFrame(session, packet);
+                event["type"] = "quest_menu";
                 break;
             case SMSG_LIST_INVENTORY:
                 CaptureCommerceMenu(session, packet, false);
@@ -820,13 +1207,20 @@ public:
                 CaptureCommerceMenu(session, packet, true);
                 return;
             case SMSG_QUESTGIVER_QUEST_DETAILS:
+                CaptureQuestFrame(session, packet);
                 event = CaptureSharedQuest(session, packet, false);
                 break;
             case SMSG_QUEST_CONFIRM_ACCEPT:
+                ClearQuestFrames(session);
                 event = CaptureSharedQuest(session, packet, true);
                 break;
             case SMSG_QUESTGIVER_OFFER_REWARD:
+                CaptureQuestFrame(session, packet);
                 event["type"] = "quest_reward";
+                break;
+            case SMSG_QUESTGIVER_REQUEST_ITEMS:
+                CaptureQuestFrame(session, packet);
+                event["type"] = "quest_request_items";
                 break;
             case SMSG_QUESTGIVER_QUEST_COMPLETE:
                 if (packet.size() >= 4)
@@ -837,6 +1231,8 @@ public:
                     {
                         std::lock_guard<std::mutex> lock(_eventMutex);
                         _rewardReceipts[session] = quest;
+                        _questMenus.erase(session);
+                        _questDialogs.erase(session);
                     }
                     event["type"] = "quest_rewarded";
                     event["quest_id"] = quest;
@@ -1804,6 +2200,8 @@ private:
         _markerChanges.erase(session);
         _vendorMenus.erase(session);
         _trainerMenus.erase(session);
+        _questMenus.erase(session);
+        _questDialogs.erase(session);
     }
 
     void CaptureQuestAbandonCommand(WorldSession* session, Json::object& event)
@@ -2244,6 +2642,9 @@ private:
             state["attackable"] = player->IsValidAttackTarget(unit);
             state["line_of_sight"] = player->IsWithinLOSInMap(unit);
             state["lootable"] = unit->IsCreature() && player->isAllowedToLoot(unit->ToCreature());
+            if (unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_QUESTGIVER) && !player->IsHostileTo(unit))
+                for (auto const& field : QuestRelations(player, unit))
+                    state[field.key()] = field.value();
             nearby.push_back(std::move(state));
         }
         result["nearby_units"] = std::move(nearby);
@@ -2263,9 +2664,14 @@ private:
         {
             if (nearbyObjects.size() == 64)
                 break;
-            nearbyObjects.push_back(Json::object{{"guid", std::to_string(object->GetGUID().GetRawValue())},
+            Json::object state{{"guid", std::to_string(object->GetGUID().GetRawValue())},
                 {"name", object->GetName()}, {"entry", object->GetEntry()}, {"position", PositionOf(object)},
-                {"distance", player->GetDistance(object)}, {"type", uint32(object->GetGoType())}});
+                {"distance", player->GetDistance(object)}, {"type", uint32(object->GetGoType())},
+                {"is_questgiver", object->GetGoType() == GAMEOBJECT_TYPE_QUESTGIVER}};
+            if (object->GetGoType() == GAMEOBJECT_TYPE_QUESTGIVER)
+                for (auto const& field : QuestRelations(player, object))
+                    state[field.key()] = field.value();
+            nearbyObjects.push_back(std::move(state));
         }
         result["nearby_objects"] = std::move(nearbyObjects);
         Json::array quests;
@@ -2278,16 +2684,30 @@ private:
             Json::array objectives;
             Json::array itemObjectives;
             for (uint8 objective = 0; objective < QUEST_OBJECTIVES_COUNT; ++objective)
-                objectives.push_back(Json::object{{"current", player->GetQuestSlotCounter(slot, objective)},
-                    {"required", quest ? quest->RequiredNpcOrGoCount[objective] : 0}});
+            {
+                int32 target = quest ? quest->RequiredNpcOrGo[objective] : 0;
+                objectives.push_back(Json::object{{"index", objective},
+                    {"current", player->GetQuestSlotCounter(slot, objective)},
+                    {"required", quest ? quest->RequiredNpcOrGoCount[objective] : 0},
+                    {"target_entry", target < 0 ? uint32(-int64(target)) : uint32(target)},
+                    {"target_type", target < 0 ? "gameobject" : (target > 0 ? "creature" : "none")},
+                    {"text", quest ? quest->ObjectiveText[objective] : ""}});
+            }
             if (quest)
                 for (uint8 objective = 0; objective < QUEST_ITEM_OBJECTIVES_COUNT; ++objective)
                     if (quest->RequiredItemId[objective])
+                    {
+                        ItemTemplate const* item = sObjectMgr->GetItemTemplate(quest->RequiredItemId[objective]);
                         itemObjectives.push_back(Json::object{{"item_id", quest->RequiredItemId[objective]},
+                            {"name", item ? item->Name1 : ""},
                             {"current", player->GetItemCount(quest->RequiredItemId[objective])},
                             {"required", quest->RequiredItemCount[objective]}});
+                    }
             quests.push_back(Json::object{{"id", id}, {"title", quest ? quest->GetTitle() : ""},
-                {"status", uint32(player->GetQuestStatus(id))}, {"objectives", std::move(objectives)},
+                {"status", uint32(player->GetQuestStatus(id))},
+                {"status_name", QuestStatusName(player->GetQuestStatus(id))},
+                {"complete", player->GetQuestStatus(id) == QUEST_STATUS_COMPLETE},
+                {"objectives", std::move(objectives)},
                 {"item_objectives", std::move(itemObjectives)}, {"details", quest ? quest->GetDetails() : ""},
                 {"objective_text", quest ? quest->GetObjectives() : ""}});
         }
@@ -2329,6 +2749,7 @@ private:
         result["inventory"] = std::move(inventory);
         result["inventory_index"] = std::move(index);
         result["equipment"] = std::move(equipment);
+        result["bag_capacity"] = BagCapacity(player);
         result["inspected_item"] = nullptr;
         if (auto actor = _actors.find(name); actor != _actors.end() && actor->second->inspectedItem)
             if (Item* item = player->GetItemByGuid(actor->second->inspectedItem); CarriedItem(player, item))
@@ -2366,7 +2787,6 @@ private:
         result["spells"] = std::move(spells);
         result["cooldowns"] = std::move(cooldowns);
         Json::array gossip;
-        Json::array availableQuests;
         if (player->PlayerTalkClass)
         {
             GossipMenu const& gossipMenu = player->PlayerTalkClass->GetGossipMenu();
@@ -2377,17 +2797,10 @@ private:
                     {"coded", item.IsCoded}, {"cost", item.BoxMoney}, {"option_id", id},
                     {"menu_id", gossipMenu.GetMenuId()},
                     {"target_guid", std::to_string(gossipMenu.GetSenderGUID().GetRawValue())}});
-            QuestMenu const& menu = player->PlayerTalkClass->GetQuestMenu();
-            for (uint16 index = 0; index < menu.GetMenuItemCount(); ++index)
-            {
-                auto const& item = menu.GetItem(index);
-                Quest const* quest = sObjectMgr->GetQuestTemplate(item.QuestId);
-                availableQuests.push_back(Json::object{{"id", item.QuestId}, {"icon", item.QuestIcon},
-                    {"title", quest ? quest->GetTitle() : ""}});
-            }
         }
         result["gossip_options"] = std::move(gossip);
-        result["available_quests"] = std::move(availableQuests);
+        result["available_quests"] = QuestMenuSnapshot(player);
+        result["quest_dialog"] = QuestDialogSnapshot(player);
         Json::array events;
         double cursor = Number(request, "since", Number(request, "after_event_id"));
         if (cursor < 0 || cursor > 9007199254740991.0 || std::floor(cursor) != cursor)
@@ -2428,6 +2841,8 @@ private:
         result["bounds"] = Json::object{{"radius", radius}, {"nearby_units", 64},
             {"nearby_objects", 64}, {"spells", 256}, {"inventory", 200}, {"inventory_index", 200}, {"events", 64},
             {"equipment", 23}, {"vendor_page", 24}, {"trainer_page", 24}, {"trainer_cached_rows", 1024},
+            {"quest_menu", 64}, {"quest_choice_rewards", QUEST_REWARD_CHOICES_COUNT},
+            {"quest_fixed_rewards", QUEST_REWARDS_COUNT}, {"quest_dialog_text", 4096},
             {"party_members", MAXRAIDSIZE}, {"guard_interventions", 64}};
         return Response(request, true, std::move(result));
     }
@@ -2746,6 +3161,174 @@ private:
             {"learned_spells", std::move(learnedSpells)}});
     }
 
+    Json::object QuestAction(Json::object const& request, Json::object const& action, Actor& actor,
+        Player* player, WorldObject* source, std::string const& type)
+    {
+        if (!action.if_contains("target_guid") || Text(action, "target_guid").empty())
+            return Error(request, "invalid_target", "Quest actions require an explicit advertised target_guid");
+        if (!QuestSource(player, source->GetGUID()))
+            return Error(request, "invalid_questgiver", "Questgiver must be visible and normally interactable nearby");
+        ObjectGuid sourceGuid = source->GetGUID();
+        uint32 questId = Unsigned(action, "quest_id");
+        Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+        if (!questId || !quest)
+            return Error(request, "invalid_quest", "Choose a positive advertised quest_id");
+        auto menu = CurrentQuestFrame(actor.session.get(), false);
+        bool advertised = false;
+        if (menu && menu->source == source->GetGUID() && QuestFrameAvailable(player, *menu))
+            for (auto const& row : menu->rows)
+                if (Unsigned(row.as_object(), "id") == questId)
+                    advertised = true;
+        if (!advertised)
+            return Error(request, "stale_quest_menu", "Interact with this questgiver and choose a current quest first");
+        bool starting = source->hasQuest(questId);
+        bool involved = source->hasInvolvedQuest(questId);
+        if ((type == "query_quest" && !starting && !involved) || (type == "accept_quest" && !starting)
+            || (type != "query_quest" && type != "accept_quest" && !involved))
+            return Error(request, "questgiver_mismatch", "The current questgiver does not offer this quest operation");
+        auto dialog = CurrentQuestFrame(actor.session.get(), true);
+        bool matching = dialog && dialog->source == source->GetGUID() && dialog->quest == questId
+            && QuestFrameAvailable(player, *dialog);
+        if (type == "accept_quest" && (!matching || dialog->phase != "details"
+            || !dialog->fields.at("activate_accept").as_bool()))
+            return Error(request, "quest_not_offered", "Read this questgiver's current accept dialog first");
+        if (type == "request_reward" && (!matching || dialog->phase != "request_items"))
+            return Error(request, "quest_not_requested", "Open this questgiver's current item turn-in dialog first");
+        uint32 reward = 0;
+        uint32 chosenItem = 0;
+        uint32 chosenCount = 0;
+        if (type == "reward_quest")
+        {
+            if (!matching || dialog->phase != "offer_reward")
+                return Error(request, "reward_not_offered", "Open this questgiver's current reward offer first");
+            if (!action.if_contains("reward_index"))
+                return Error(request, "reward_choice_required", "Choose an explicit advertised reward_index");
+            reward = Unsigned(action, "reward_index", 0, QUEST_REWARD_CHOICES_COUNT - 1);
+            auto const& choices = dialog->fields.at("choice_rewards").as_array();
+            bool valid = choices.empty() && reward == 0 && !quest->GetRewChoiceItemsCount();
+            for (auto const& value : choices)
+            {
+                auto const& row = value.as_object();
+                if (Unsigned(row, "reward_index") == reward)
+                {
+                    chosenItem = Unsigned(row, "item_id");
+                    chosenCount = Unsigned(row, "count");
+                    valid = chosenItem && chosenItem == quest->RewardChoiceItemId[reward]
+                        && chosenCount == quest->RewardChoiceItemCount[reward];
+                }
+            }
+            if (!valid)
+                return Error(request, "stale_reward", "The selected reward does not match the current offer");
+        }
+        uint32 beforeMoney = player->GetMoney();
+        uint32 beforeStatus = uint32(player->GetQuestStatus(questId));
+        bool beforeActive = player->IsActiveQuest(questId);
+        bool beforeInLog = player->FindQuestSlot(questId) < MAX_QUEST_LOG_SIZE;
+        if (type == "accept_quest" && (beforeActive || beforeInLog))
+            return Error(request, "quest_already_accepted",
+                "This quest is already active; no second acceptance was sent");
+        std::map<uint32, uint32> beforeItems;
+        if (type == "reward_quest")
+        {
+            if (chosenItem)
+                beforeItems[chosenItem] = player->GetItemCount(chosenItem, false);
+            for (uint32 index = 0; index < QUEST_REWARDS_COUNT; ++index)
+                if (uint32 item = quest->RewardItemId[index])
+                    beforeItems[item] = player->GetItemCount(item, false);
+            for (uint32 index = 0; index < QUEST_ITEM_OBJECTIVES_COUNT; ++index)
+                if (uint32 item = quest->RequiredItemId[index])
+                    beforeItems[item] = player->GetItemCount(item, false);
+        }
+        uint64 beforeRevision = dialog ? dialog->revision : 0;
+        if (CurrentGuardAction)
+            CurrentGuardAction->quest = questId;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _rewardReceipts.erase(actor.session.get());
+        }
+        if (type == "query_quest")
+        {
+            WorldPacket packet(CMSG_QUESTGIVER_QUERY_QUEST, 13);
+            packet << sourceGuid << questId << uint8(0);
+            actor.session->HandleQuestgiverQueryQuestOpcode(packet);
+        }
+        else if (type == "accept_quest")
+        {
+            WorldPacket packet(CMSG_QUESTGIVER_ACCEPT_QUEST, 16);
+            packet << sourceGuid << questId << uint32(0);
+            actor.session->HandleQuestgiverAcceptQuestOpcode(packet);
+        }
+        else if (type == "complete_quest")
+        {
+            WorldPacket packet(CMSG_QUESTGIVER_COMPLETE_QUEST, 12);
+            packet << sourceGuid << questId;
+            actor.session->HandleQuestgiverCompleteQuest(packet);
+        }
+        else if (type == "request_reward")
+        {
+            WorldPacket packet(CMSG_QUESTGIVER_REQUEST_REWARD, 12);
+            packet << sourceGuid << questId;
+            actor.session->HandleQuestgiverRequestRewardOpcode(packet);
+        }
+        else
+        {
+            WorldPacket packet(CMSG_QUESTGIVER_CHOOSE_REWARD, 16);
+            packet << sourceGuid << questId << reward;
+            actor.session->HandleQuestgiverChooseRewardOpcode(packet);
+        }
+        bool rewardReceipt = false;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _rewardReceipts.find(actor.session.get());
+            rewardReceipt = found != _rewardReceipts.end() && found->second == questId;
+        }
+        auto after = CurrentQuestFrame(actor.session.get(), true);
+        bool freshDialog = after && after->revision != beforeRevision && after->source == sourceGuid
+            && after->quest == questId;
+        bool afterInLog = player->FindQuestSlot(questId) < MAX_QUEST_LOG_SIZE;
+        bool afterActive = player->IsActiveQuest(questId);
+        bool accepted = !beforeActive && !beforeInLog && afterActive && afterInLog;
+        bool rewardHook = CurrentGuardAction && CurrentGuardAction->quest == questId
+            && CurrentGuardAction->questRewarded;
+        bool trackingReward = quest->HasFlag(QUEST_FLAGS_TRACKING) && rewardHook
+            && player->IsQuestRewarded(questId);
+        bool success = type == "reward_quest" ? rewardReceipt && player->IsQuestRewarded(questId)
+            : type == "accept_quest" ? accepted || trackingReward
+            : type == "request_reward" ? (freshDialog && after->phase == "offer_reward") || trackingReward
+            : type == "complete_quest" ? (freshDialog
+                && (after->phase == "request_items" || after->phase == "offer_reward")) || trackingReward
+            : freshDialog || accepted || trackingReward;
+        Json::array changes;
+        for (auto const& [item, before] : beforeItems)
+        {
+            uint32 current = player->GetItemCount(item, false);
+            changes.emplace_back(Json::object{{"item_id", item}, {"before", before}, {"after", current},
+                {"delta", int64(current) - int64(before)}});
+        }
+        Json::object result{{"status", success ? "completed" : "failed"},
+            {"reason", success ? "" : "normal_quest_handler_did_not_verify_requested_transition"},
+            {"target_guid", std::to_string(sourceGuid.GetRawValue())}, {"quest_id", questId},
+            {"quest_status_before", beforeStatus}, {"quest_status_after", uint32(player->GetQuestStatus(questId))},
+            {"quest_status_name_before", QuestStatusName(QuestStatus(beforeStatus))},
+            {"quest_status_name_after", QuestStatusName(player->GetQuestStatus(questId))},
+            {"in_log_before", beforeInLog}, {"in_log_after", afterInLog}, {"accepted_quest", accepted},
+            {"tracking_quest_rewarded", trackingReward}, {"reward_receipt", rewardReceipt},
+            {"quest_reward_hook", rewardHook},
+            {"item_changes", std::move(changes)}};
+        if (after)
+        {
+            result["phase_after"] = after->phase;
+            result["dialog_quest_id_after"] = after->quest;
+        }
+        if (type == "reward_quest")
+        {
+            result["reward_index"] = reward;
+            result["chosen_item_id"] = chosenItem;
+            result["chosen_item_count"] = chosenCount;
+        }
+        return CommerceResult(request, player, beforeMoney, std::move(result));
+    }
+
     Json::object Action(Json::object const& request, std::string const& name)
     {
         GuardActionContext context;
@@ -3010,66 +3593,31 @@ private:
         }
         if (type == "loot")
             return Loot(request, actor, object);
-        if (type == "interact" || type == "accept_quest" || type == "complete_quest" || type == "reward_quest")
+        if (type == "query_quest" || type == "accept_quest" || type == "complete_quest"
+            || type == "request_reward" || type == "reward_quest")
+            return QuestAction(request, action, actor, player, object, type);
+        if (type == "interact")
         {
             if (!player->IsWithinDistInMap(object, INTERACTION_DISTANCE) || !player->IsWithinLOSInMap(object))
                 return Error(request, "out_of_range",
                     "Interaction requires normal interaction distance and line of sight");
-            if (type == "interact")
+            if (Creature* creature = object->ToCreature())
             {
-                if (Creature* creature = object->ToCreature())
-                {
-                    if (!player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_QUESTGIVER))
-                        return Error(request, "cannot_interact", "NPC cannot be interacted with normally");
-                    WorldPacket packet(CMSG_GOSSIP_HELLO, 8);
-                    packet << creature->GetGUID();
-                    actor.session->HandleGossipHelloOpcode(packet);
-                }
-                else if (GameObject* gameObject = object->ToGameObject())
-                {
-                    WorldPacket packet(CMSG_GAMEOBJ_USE, 8);
-                    packet << gameObject->GetGUID();
-                    actor.session->HandleGameObjectUseOpcode(packet);
-                }
-                else
-                    return Error(request, "cannot_interact", "Target is not an NPC or game object");
+                if (!player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_QUESTGIVER))
+                    return Error(request, "cannot_interact", "NPC cannot be interacted with normally");
+                WorldPacket packet(CMSG_GOSSIP_HELLO, 8);
+                packet << creature->GetGUID();
+                actor.session->HandleGossipHelloOpcode(packet);
+            }
+            else if (GameObject* gameObject = object->ToGameObject())
+            {
+                WorldPacket packet(CMSG_GAMEOBJ_USE, 8);
+                packet << gameObject->GetGUID();
+                actor.session->HandleGameObjectUseOpcode(packet);
             }
             else
-            {
-                uint32 quest = Unsigned(action, "quest_id");
-                if (!quest || !sObjectMgr->GetQuestTemplate(quest))
-                    return Error(request, "invalid_quest", "Quest ID is invalid");
-                WorldPacket packet(CMSG_QUESTGIVER_HELLO, 24);
-                packet << guid << quest;
-                if (type == "accept_quest")
-                {
-                    packet << uint32(0);
-                    actor.session->HandleQuestgiverAcceptQuestOpcode(packet);
-                    if (player->GetQuestStatus(quest) == QUEST_STATUS_NONE)
-                        return Error(request, "quest_rejected", "Normal quest handler did not accept this quest");
-                }
-                else if (type == "complete_quest")
-                    actor.session->HandleQuestgiverCompleteQuest(packet);
-                else
-                {
-                    packet << Unsigned(action, "reward_index", 0, QUEST_REWARD_CHOICES_COUNT - 1);
-                    {
-                        std::lock_guard<std::mutex> lock(_eventMutex);
-                        _rewardReceipts.erase(actor.session.get());
-                    }
-                    actor.session->HandleQuestgiverChooseRewardOpcode(packet);
-                    bool rewarded = false;
-                    {
-                        std::lock_guard<std::mutex> lock(_eventMutex);
-                        auto receipt = _rewardReceipts.find(actor.session.get());
-                        rewarded = receipt != _rewardReceipts.end() && receipt->second == quest;
-                    }
-                    if (!rewarded)
-                        return Error(request, "quest_rejected", "Normal quest handler did not reward this quest");
-                }
-            }
-            return Response(request, true, {{"status", type == "interact" || type == "complete_quest"
-                ? "accepted" : "completed"}, {"request_id", id}});
+                return Error(request, "cannot_interact", "Target is not an NPC or game object");
+            return Response(request, true, {{"status", "accepted"}, {"request_id", id}});
         }
         return Error(request, "unsupported_action", "Action type is not supported");
     }
@@ -3354,6 +3902,8 @@ private:
     std::map<WorldSession*, uint32> _rewardReceipts;
     std::map<WorldSession*, CommerceMenu> _vendorMenus;
     std::map<WorldSession*, CommerceMenu> _trainerMenus;
+    std::map<WorldSession*, QuestFrame> _questMenus;
+    std::map<WorldSession*, QuestFrame> _questDialogs;
     std::map<WorldSession*, PartyInvite> _partyInvites;
     std::map<WorldSession*, SharedQuestOffer> _questShares;
     std::map<WorldSession*, std::deque<QuestAbandonCommand>> _questAbandons;
@@ -3372,6 +3922,7 @@ private:
     uint64 _snapshotSequence = 0;
     uint64 _questShareSequence = 0;
     uint64 _commerceSequence = 0;
+    uint64 _questFrameSequence = 0;
 };
 
 class Commands : public CommandScript
@@ -3422,6 +3973,18 @@ public:
     void OnPacketSent(WorldSession* session, WorldPacket const& packet) override
     {
         Bridge::Instance().Packet(session, packet);
+    }
+};
+
+class QuestReceipts : public PlayerScript
+{
+public:
+    QuestReceipts() : PlayerScript("presence_bridge_quest_receipts", {PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST}) { }
+
+    void OnPlayerCompleteQuest(Player* player, Quest const* quest) override
+    {
+        // This core invokes the hook after RewardQuest, including unannounced tracking rewards.
+        Bridge::Instance().QuestRewarded(player, quest);
     }
 };
 
@@ -3555,6 +4118,7 @@ void Addmod_presence_bridgeScripts()
     new Presence::Commands();
     new Presence::World();
     new Presence::Packets();
+    new Presence::QuestReceipts();
     new Presence::ProtectionUnits();
     new Presence::ProtectionSpells();
 }

@@ -49,6 +49,11 @@ controller or providers or changing global import paths. Live previews show the
 current projection; recorded requests and Moon incidents retain original inputs.
 See `Vesper Commands.md` for inspection and equipment guidance notes.
 
+The quest-dialog/bag-capacity source update is prepared but has not been built or
+installed. It adds packet-backed NPC quest choices and normal turn-in transitions;
+the matching Presence patch remains staged. The operating server still uses its
+previous binary. See the prepared-update section in `Vesper Commands.md`.
+
 `Configure-Presence-Native.py` intentionally requires a locally supplied
 `PRESENCE_PROFILE_ID` environment variable. No actual profile identifier is
 included. Set it to your intended eligible profile only after reviewing the
