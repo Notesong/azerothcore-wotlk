@@ -65,6 +65,10 @@ The body planner receives the full standing Moon instruction whenever protection
 is active or its stored state is unavailable. Attack and cast remain choices;
 the hard guard still enforces protection.
 
+The detailed Moon script is conditional, rather than an always-present body
+instruction. An active/recent tame without Moon gets its own short hands-off
+instruction. Ordinary play carries protection status without the full script.
+
 Direct proposals against the protected creature and action-linked guard
 interventions are saved with the original request context, proposed/submitted
 actions and result. This includes a proposal changed to a wait before submission,
@@ -250,7 +254,7 @@ Full setup and behavior notes: [harness README](C:/Games/AzerothCore/harness/REA
 
 ## Local Qwen body and attention
 
-Installed October 31, 2026. The body uses **Qwen3.5-4B**, alias
+Installed October 31, 2026. The body uses **Qwen3.5-4B Q4_K_XL**, alias
 `qwen3.5-4b-action`, at `http://127.0.0.1:8082/v1`, with thinking disabled.
 This dedicated endpoint leaves the main/helper model endpoints available for
 other helpers. The social provider/model is unchanged and still uses no reasoning.
@@ -270,12 +274,25 @@ from the AzerothCore folder. These helpers use fixed local executable/model path
 The observation interval is one second, not one model call per second. Deliberate
 party attacks/casts, danger, Aurenne moving away, a growing distance gap and useful
 action results can now wake the body planner. A selected target or being chased
-alone does not count as choosing to fight. Luna decides how to respond; these
+alone does not count as choosing to fight. The body planner decides how to respond; these
 signals do not force an attack, heal or follow. Moon/tame guards remain active.
 Explicit model waits have bounded review deadlines; persistent follow keeps
 executing locally. Addon protocol messages no longer count as player conversation.
 Invalid/empty model output is reported as a failed decision, with bounded retry
 backoff, instead of appearing to be an intentional wait.
+
+Derived attention facts carry their source snapshot sequence/time and distinguish
+current channels, auto-repeat shots and recent tame attempts. Native model notes
+are unverified prior proposals, kept for at most 30 seconds and invalidated when
+their underlying party/protection activity changes. Repeating the same note does
+not renew its age or evidence. A new runner starts with fresh working notes;
+the original configuration and complete decision ledger remain preserved.
+Chosen party fights now include bounded target summaries with exact GUIDs and
+optional attack actions, including neutral creatures that the party deliberately
+engaged. The agreed party role is melee damage/support. Following only positions
+him; `attack` chases and begins continuous melee. These are planner choices.
+Identical complete JSON decisions repeated in multiple response messages collapse
+to one decision; differing complete decisions remain an explicit parse failure.
 
 The local body receives a smaller structured view and an action-specific JSON
 schema. Critical units, protection, spells and open menus remain available;
@@ -284,8 +301,12 @@ Images remain a social/observer feature and are omitted from this text-only body
 `wow_model_context` live previews select this local view from the saved body
 configuration; `last_request` retains the actual dynamic context of a genuine call.
 
-In read-only samples with his configured continuity, Qwen took about **3.4–4.1
-seconds** per decision; startup and GPU contention can take longer. The measured
-dynamic context was **36.6% smaller**. The 4B model is experimental: it made some
-sensible choices and an invalid NPC interaction in synthetic tests. Normal server
-validation and the hard Moon guard remain in place. These probes executed no game actions.
+With identical frozen prompts, 4B, 9B and GPT-6 Luna chose attacks for deliberate
+party fights, restraint for taming, and follow for a passing threat. Reasoning was
+off and no proposed game action was executed. Warm 4B median was about **3.0
+seconds**, with the two attack choices at **2.9–3.0 seconds**; 9B took about
+**3.7–4.1 seconds** and Luna about **1.8–2.0 seconds** on those combat/protection
+cases. One cold 4B request took about 26 seconds. Hardware contention and output
+length affect latency; these few cases establish a useful play-test baseline,
+not reliable behavior in every situation. The normal server checks and hard
+Moon guard remain active. Refresh Presence, then start the controller for a live test.

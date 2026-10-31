@@ -77,7 +77,7 @@ Being online is separate from his model controller: use Start or Resume in Prese
 when you want him to make decisions and talk. Server startup preserves the model pause.
 The saved native config already selects Vesper and his explicitly bound Presence profile.
 The AzerothCore tab and Full share the same controller; they are not separate gameplay loops.
-The body now uses local Qwen3.5-4B on its own endpoint: http://127.0.0.1:8082/v1.
+The body now uses local Qwen3.5-4B Q4_K_XL on its own endpoint: http://127.0.0.1:8082/v1.
 Thinking is disabled; the social model and other helper endpoints are unchanged.
 Run Start Qwen Body.cmd before starting the controller if Qwen is offline.
 Use Stop Qwen Body.cmd to stop only that model server, after stopping the controller.

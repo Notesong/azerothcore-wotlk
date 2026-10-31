@@ -4,6 +4,7 @@ Set-StrictMode -Version Latest
 # ports, processes, models or configuration are changed by these checks.
 $plan = . (Join-Path $PSScriptRoot 'Qwen-Body.ps1') -Action Plan
 if ($plan.BaseUrl -ne 'http://127.0.0.1:8082/v1' -or $plan.ContextSize -ne 32768) { throw 'Dedicated endpoint/context plan is incorrect.' }
+if ($plan.Alias -ne 'qwen3.5-4b-action' -or $plan.Model -notlike '*Qwen3.5-4B-UD-MTP-Q4_K_XL.gguf') { throw 'The dedicated body plan does not select the reviewed 4B quant.' }
 if ($plan.Arguments -contains '--spec-type' -or $plan.Arguments -contains '--mmproj') { throw 'Baseline unexpectedly enables MTP or a projector.' }
 if ($plan.Arguments -notcontains '--no-mmproj' -or $plan.Arguments -notcontains '--no-warmup') { throw 'Baseline projector/warmup controls missing.' }
 if ((ConvertTo-QwenWindowsArgument '{"enable_thinking":false}') -ne '"{\"enable_thinking\":false}"') { throw 'Windows JSON argument quoting failed.' }

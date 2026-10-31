@@ -82,6 +82,23 @@ function Initialize-QwenPrivateDirectory {
         [void](New-Item -ItemType Directory -Path $QwenPrivateDirectory)
     }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $existing = Get-Acl -LiteralPath $QwenPrivateDirectory
+    $rules = @($existing.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    $expectedSids = @($identity.User.Value, 'S-1-5-18')
+    $privateAcl = $existing.AreAccessRulesProtected -and $rules.Count -eq 2 -and
+        $existing.GetOwner([Security.Principal.SecurityIdentifier]).Value -eq $identity.User.Value
+    foreach ($rule in $rules) {
+        if ($rule.IdentityReference.Value -notin $expectedSids -or $rule.IsInherited -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) {
+            $privateAcl = $false
+        }
+    }
+    if ($privateAcl -and @($rules.IdentityReference.Value | Sort-Object -Unique).Count -eq 2) {
+        # Reuse this exact protected ACL. Rewriting an unchanged descriptor can
+        # require audit-security privileges in some PowerShell 7 launch tokens.
+        return
+    }
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
     $acl.SetOwner($identity.User)
@@ -237,11 +254,14 @@ function Stop-QwenBody {
     Assert-QwenListenerOwnership $state $process
     if (-not $process) { Show-QwenStatus; return }
     if (-not (Test-QwenOwnedProcess $state $process)) { throw 'The saved PID is not the owned Qwen runtime. No process was stopped.' }
-    Stop-Process -Id ([int]$state.pid) -ErrorAction Stop
-    for ($attempt = 0; $attempt -lt 25; $attempt++) {
-        $candidate = Get-QwenProcess ([int]$state.pid)
-        if (-not $candidate -or -not (Test-QwenOwnedProcess $state $candidate)) { Show-QwenStatus; return }
-        Start-Sleep -Milliseconds 200
+    # Hold the verified process handle through shutdown. CIM can briefly retain
+    # a terminated record with no command line, which must not be reported as a
+    # different live owner or trigger any action against a reused PID.
+    $ownedProcess = Get-Process -Id ([int]$state.pid) -ErrorAction Stop
+    Stop-Process -InputObject $ownedProcess -ErrorAction Stop
+    if ($ownedProcess.WaitForExit(5000)) {
+        [pscustomobject]@{ Model = $QwenAlias; BaseUrl = $QwenBaseUrl; State = 'stopped'; ProcessId = 0 }
+        return
     }
     throw 'The dedicated Qwen process has not exited yet. No other process was stopped.'
 }

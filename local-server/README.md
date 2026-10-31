@@ -58,6 +58,11 @@ under `local-qwen-private/` are excluded from this source backup.
 The private Presence changes add party/distance attention, explicit invalid-output
 reporting, addon-message filtering and a compact local body view/schema. MCP live
 previews use the same pure local projection helpers when configured for that body.
+Follow-up fixes bind chosen party fights to exact target/action facts, separate
+current casts from auto-repeat shots and recent tame attempts, and expire or
+invalidate unverified model notes. Detailed Moon/tame instructions are conditional;
+the native hard guard remains enabled. Identical complete duplicate response
+messages collapse to one decision, while conflicting decisions remain invalid.
 See `Vesper Commands.md` for startup, inspection and measured limitations.
 
 The quest-dialog/bag-capacity update was built and installed on October 31, 2026.
