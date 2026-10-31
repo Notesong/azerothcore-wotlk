@@ -330,6 +330,23 @@ event itself and never derives identity from names. Unknown or stale provenance
 stays unknown. A directed social gesture can therefore identify its recipient
 without adding a global emote listener or widening ordinary client visibility.
 
+## Chest and quest-object pickup
+
+`loot(target_guid)` supports eligible creature corpses and ordinary chest game
+objects, including quest books. Chest pickup uses the character's normal known
+opening spell and the normal game-object spell target. It applies ordinary lock,
+range, line-of-sight, cast, quest and storage checks. It does not force an unlock
+or expose unopened loot-table contents. `interact` on a chest directs the caller
+to `loot` rather than accepting a no-op.
+
+A cast-time opening returns `accepted` under its original request UUID. Bounded
+`pending_loot` facts identify the source, spell and remaining timeout. The world
+update waits for the matching normal loot-window receipt, stores only offered
+permitted slots through the normal handler and verifies actual inventory gains.
+`action_result` resolves the same UUID to stored items or an honest failure.
+Explicit movement/combat actions can supersede opening; merely selecting a unit
+does not. A failed cast, lost source, death or timeout does not count as pickup.
+
 ## Personal catch-up XP
 
 The optional catch-up hook multiplies one configured character's ordinary XP

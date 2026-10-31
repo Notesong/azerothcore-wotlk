@@ -15,6 +15,10 @@ identity, stale records, same-name different GUIDs, malformed packets and logout
 cleanup and distinct bridge-owned observers without using Moon's character
 filter. It also has its own `main`.
 
+`pickup-policy-tests.cpp` checks source/cast/receipt identity, pending progress,
+interruptions, overrides and actual stored-count deltas in 61 isolated checks.
+It has its own `main` and does not connect to a running server.
+
 Each file has its own `main` and must be compiled as a separate C++20 executable.
 For example, from this directory with an available C++ compiler:
 

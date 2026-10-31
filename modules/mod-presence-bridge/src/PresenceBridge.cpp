@@ -35,6 +35,7 @@
 #include "PresenceGuardTelemetry.h"
 #include "PresenceQuestCommand.h"
 #include "PresenceProtectionPolicy.h"
+#include "PresencePickupPolicy.h"
 #include "QuestDef.h"
 #include "QuestPackets.h"
 #include "ScriptMgr.h"
@@ -426,6 +427,20 @@ struct Actor
     Position escapeDestination;
     std::map<ObjectGuid, ReactStates> petReactions;
     ObjectGuid inspectedItem;
+    std::string lootId;
+    ObjectGuid lootTarget;
+    uint32 lootSpell = 0;
+    uint8 lootCastCount = 0;
+    uint8 nextLootCastCount = 0;
+    std::chrono::steady_clock::time_point lootDeadline;
+};
+
+struct OpeningLoot
+{
+    std::string request;
+    ObjectGuid target;
+    uint32 spell = 0;
+    uint8 count = 0;
 };
 
 struct TameAttempt
@@ -514,6 +529,7 @@ struct LootWindow
     uint8 visibleSlots = 0;
     bool valid = false;
     std::vector<LootSlot> allowed;
+    std::string openingRequest;
 };
 
 struct PartyInvite
@@ -616,6 +632,8 @@ public:
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "gossip_select",
                         "vendor_buyback"}},
+                    {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
+                        {"operation", "open_loot"}, {"async_opening", true}}},
                     {"headless", true}, {"allowed_characters", AllowedNames()}});
             if (op == "action_result")
             {
@@ -649,6 +667,7 @@ public:
                 {
                     if (actor->second->phase == "creating" || actor->second->phase == "loading")
                         return Error(request, "busy", "Wait for the pending creation/login before detaching");
+                    CancelOpeningLoot(*actor->second, "detached");
                     if (Player* player = actor->second->session->GetPlayer())
                         RestorePetReactions(*actor->second, player);
                     actor->second->session->LogoutPlayer(true);
@@ -715,6 +734,7 @@ public:
                 ProcessSharedQuest(*actor, player);
                 ProcessQuestAbandonCommands(*actor, player);
                 UpdateProtection(*actor, player);
+                ProcessOpeningLoot(*actor, player);
             }
             if (!actor->motionId.empty())
             {
@@ -738,6 +758,7 @@ public:
     {
         for (auto const& [name, actor] : _actors)
         {
+            CancelOpeningLoot(*actor, "server_shutdown");
             if (Player* player = actor->session->GetPlayer())
                 RestorePetReactions(*actor, player);
             actor->session->LogoutPlayer(true);
@@ -2281,6 +2302,7 @@ private:
             _emoteCorrelations.ForgetCharacter(owned->second.GetRawValue());
         _ownedCharacters.erase(session);
         _lootWindows.erase(session);
+        _openingLoot.erase(session);
         _rewardReceipts.erase(session);
         _partyInvites.erase(session);
         _questShares.erase(session);
@@ -2678,6 +2700,17 @@ private:
         self["controller_owned"] = _actors.contains(name) && _actors[name]->session->GetPlayer() == player;
         self["target_guid"] = std::to_string(player->GetTarget().GetRawValue());
         Json::object result{{"self", self}, {"sequence", sequence}, {"timestamp", timestamp}};
+        result["pending_loot"] = nullptr;
+        if (auto found = _actors.find(name); found != _actors.end() && !found->second->lootId.empty())
+        {
+            Actor const& actor = *found->second;
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                actor.lootDeadline - std::chrono::steady_clock::now()).count();
+            result["pending_loot"] = Json::object{{"request_id", actor.lootId},
+                {"target_guid", std::to_string(actor.lootTarget.GetRawValue())},
+                {"opening_spell_id", actor.lootSpell}, {"status", "opening"},
+                {"remaining_ms", std::max<int64>(0, remaining)}};
+        }
         result["protection"] = ProtectionState(player);
         result["party_invite"] = Json::value(nullptr);
         PartyInvite invitation;
@@ -2757,6 +2790,21 @@ private:
                 {"name", object->GetName()}, {"entry", object->GetEntry()}, {"position", PositionOf(object)},
                 {"distance", player->GetDistance(object)}, {"type", uint32(object->GetGoType())},
                 {"is_questgiver", object->GetGoType() == GAMEOBJECT_TYPE_QUESTGIVER}};
+            bool chest = object->GetGoType() == GAMEOBJECT_TYPE_CHEST;
+            state["is_chest"] = chest;
+            state["spawned"] = object->isSpawned();
+            state["selectable"] = !object->HasGameObjectFlag(GO_FLAG_NOT_SELECTABLE);
+            state["interact_in_range"] = object->IsWithinDistInMap(player);
+            state["line_of_sight"] = player->IsWithinLOSInMap(object);
+            state["quest_relevant"] = object->ActivateToQuest(player);
+            SpellInfo const* opening = chest ? object->GetSpellForLock(player) : nullptr;
+            state["opening_spell_available"] = opening != nullptr;
+            if (opening)
+            {
+                state["opening_spell_id"] = opening->Id;
+                state["opening_spell_name"] = std::string(opening->SpellName[0]).substr(0, 64);
+                state["opening_cast_time_ms"] = opening->CalcCastTime(player);
+            }
             if (object->GetGoType() == GAMEOBJECT_TYPE_QUESTGIVER)
                 for (auto const& field : QuestRelations(player, object))
                     state[field.key()] = field.value();
@@ -3469,6 +3517,18 @@ private:
         auto const& action = actionValue->as_object();
         std::string type = Text(action, "type");
         std::string id = Text(request, "id");
+        if (!actor.lootId.empty() && SupersedesPickup(type))
+        {
+            if (type == "loot" && GuidNumber(action, "target_guid") == actor.lootTarget.GetRawValue())
+            {
+                auto response = Error(request, "loot_in_progress",
+                    "Monitor the original opening request; do not recast");
+                response["result"] = Json::object{{"request_id", actor.lootId}, {"status", "accepted"},
+                    {"pending", true}, {"operation", "open_loot"}};
+                return response;
+            }
+            CancelOpeningLoot(actor, "superseded_by_" + type);
+        }
         if (type == "stop")
         {
             player->AttackStop();
@@ -3691,6 +3751,14 @@ private:
             return QuestAction(request, action, actor, player, object, type);
         if (type == "interact")
         {
+            if (object->IsGameObject() && object->ToGameObject()->GetGoType() == GAMEOBJECT_TYPE_CHEST)
+            {
+                auto response = Error(request, "use_loot",
+                    "A chest requires its normal opening cast; use the loot action");
+                response["result"] = Json::object{{"optional_loot_action", Json::object{
+                    {"type", "loot"}, {"target_guid", std::to_string(guid.GetRawValue())}}}};
+                return response;
+            }
             if (!player->IsWithinDistInMap(object, INTERACTION_DISTANCE) || !player->IsWithinLOSInMap(object))
                 return Error(request, "out_of_range",
                     "Interaction requires normal interaction distance and line of sight");
@@ -3842,6 +3910,23 @@ private:
         {
             window.valid = false;
         }
+        std::optional<OpeningLoot> opening;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (auto found = _openingLoot.find(session); found != _openingLoot.end())
+                opening = found->second;
+        }
+        if (opening && window.valid && opening->target == window.guid)
+        {
+            Player* player = session->GetPlayer();
+            Spell* spell = player ? player->GetCurrentSpell(CURRENT_GENERIC_SPELL) : nullptr;
+            bool matching = spell && PickupCastMatches(opening->target.GetRawValue(), opening->spell, opening->count,
+                spell->m_targets.GetGOTargetGUID().GetRawValue(), spell->GetSpellInfo()->Id, spell->m_cast_count);
+            bool synchronous = CurrentGuardAction && player && CurrentGuardAction->owner == player->GetGUID()
+                && CurrentGuardAction->request == opening->request && CurrentGuardAction->action == "loot";
+            if (matching || synchronous)
+                window.openingRequest = opening->request;
+        }
         std::lock_guard<std::mutex> lock(_eventMutex);
         _lootWindows[session] = std::move(window);
     }
@@ -3849,6 +3934,8 @@ private:
     Json::object Loot(Json::object const& request, Actor& actor, WorldObject* object)
     {
         Player* player = actor.session->GetPlayer();
+        if (GameObject* chest = object->ToGameObject())
+            return OpenChestLoot(request, actor, player, chest);
         Creature* creature = object->ToCreature();
         if (!creature || creature->IsAlive() || !player->isAllowedToLoot(creature))
             return Error(request, "not_lootable", "Corpse is not normally lootable by this character");
@@ -3877,6 +3964,177 @@ private:
         }
         if (!window.valid || window.guid != guid || player->GetLootGUID() != guid)
             return Error(request, "loot_rejected", "Normal loot handler did not open this corpse");
+        return StoreLootWindow(request, actor, guid, window);
+    }
+
+    bool ChestSourceUsable(Player* player, GameObject* chest)
+    {
+        return chest && chest->GetGoType() == GAMEOBJECT_TYPE_CHEST && chest->isSpawned()
+            && !chest->HasGameObjectFlag(GO_FLAG_NOT_SELECTABLE) && player->HaveAtClient(chest)
+            && player->CanSeeOrDetect(chest) && chest->IsWithinDistInMap(player)
+            && player->IsWithinLOSInMap(chest);
+    }
+
+    bool MatchingOpeningCast(Actor const& actor, Player* player)
+    {
+        Spell* spell = player ? player->GetCurrentSpell(CURRENT_GENERIC_SPELL) : nullptr;
+        return spell && PickupCastMatches(actor.lootTarget.GetRawValue(), actor.lootSpell, actor.lootCastCount,
+            spell->m_targets.GetGOTargetGUID().GetRawValue(), spell->GetSpellInfo()->Id, spell->m_cast_count);
+    }
+
+    void ClearOpeningLoot(Actor& actor)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        _openingLoot.erase(actor.session.get());
+        actor.lootId.clear();
+        actor.lootTarget.Clear();
+        actor.lootSpell = 0;
+        actor.lootCastCount = 0;
+    }
+
+    void CancelOpeningLoot(Actor& actor, std::string const& reason)
+    {
+        if (actor.lootId.empty())
+            return;
+        std::string id = actor.lootId;
+        ObjectGuid target = actor.lootTarget;
+        uint32 spell = actor.lootSpell;
+        Player* player = actor.session->GetPlayer();
+        bool casting = MatchingOpeningCast(actor, player);
+        ClearOpeningLoot(actor);
+        if (casting)
+            player->InterruptNonMeleeSpells(false);
+        if (player && player->GetLootGUID() == target)
+        {
+            WorldPacket release(CMSG_LOOT_RELEASE, 8);
+            release << target;
+            actor.session->HandleLootReleaseOpcode(release);
+        }
+        Finish(id, false, {{"status", "failed"}, {"request_id", id}, {"reason", reason},
+            {"target_guid", std::to_string(target.GetRawValue())}, {"opening_spell_id", spell},
+            {"operation", "open_loot"}, {"pending", false}});
+    }
+
+    void ProcessOpeningLoot(Actor& actor, Player* player)
+    {
+        if (actor.lootId.empty())
+            return;
+        GameObject* chest = player->GetMap()->GetGameObject(actor.lootTarget);
+        LootWindow window;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (auto found = _lootWindows.find(actor.session.get()); found != _lootWindows.end())
+                window = found->second;
+        }
+        bool receipt = PickupReceiptMatches(actor.lootId, actor.lootTarget.GetRawValue(), window.valid,
+            window.openingRequest, window.guid.GetRawValue(), player->GetLootGUID().GetRawValue());
+        bool expired = std::chrono::steady_clock::now() > actor.lootDeadline;
+        bool usable = ChestSourceUsable(player, chest);
+        PickupProgress progress = ChestPickupProgress(player->IsAlive(), usable, expired,
+            receipt, MatchingOpeningCast(actor, player));
+        if (progress == PickupProgress::Waiting)
+            return;
+        if (progress == PickupProgress::Failed)
+        {
+            CancelOpeningLoot(actor, expired ? "opening_timeout" : !player->IsAlive() ? "opening_death"
+                : !usable ? "opening_source_unavailable" : "opening_interrupted_or_rejected");
+            return;
+        }
+        std::string id = actor.lootId;
+        ObjectGuid target = actor.lootTarget;
+        uint32 spell = actor.lootSpell;
+        ClearOpeningLoot(actor);
+        Json::object request{{"id", id}, {"op", "action"}, {"character", player->GetName()}};
+        Json::object response = StoreLootWindow(request, actor, target, window);
+        bool ok = response.at("ok").as_bool();
+        Json::object result = response.at("result").as_object();
+        result["status"] = ok ? "completed" : "failed";
+        result["request_id"] = id;
+        result["target_guid"] = std::to_string(target.GetRawValue());
+        result["opening_spell_id"] = spell;
+        result["operation"] = "open_loot";
+        result["pending"] = false;
+        if (!ok)
+            result["reason"] = Text(response.at("error").as_object(), "code", "loot_not_stored");
+        Finish(id, ok, std::move(result));
+    }
+
+    Json::object OpenChestLoot(Json::object const& request, Actor& actor, Player* player, GameObject* chest)
+    {
+        if (chest->GetGoType() != GAMEOBJECT_TYPE_CHEST)
+            return Error(request, "unsupported_loot_source", "Loot supports creature corpses and ordinary chests");
+        if (!ChestSourceUsable(player, chest))
+            return Error(request, "chest_unavailable",
+                "Chest must be spawned, selectable, visible and in normal range/LOS");
+        SpellInfo const* opening = chest->GetSpellForLock(player);
+        if (!opening || !opening->HasEffect(SPELL_EFFECT_OPEN_LOCK))
+            return Error(request, "opening_unavailable",
+                "No normal opening spell is available for this chest and character");
+        if (player->IsNonMeleeSpellCast(false) || !player->SpellQueue.empty()
+            || !player->CanExecutePendingSpellCastRequest(opening))
+            return Error(request, "opening_not_ready", "Wait for the current spell or cooldown before opening");
+        if (!actor.motionId.empty())
+        {
+            Finish(actor.motionId, false, {{"status", "failed"}, {"reason", "superseded_by_loot"}});
+            actor.motionId.clear();
+        }
+        // Standing still is execution of this chosen pickup, not a new follow policy.
+        player->GetMotionMaster()->Clear();
+        player->StopMoving();
+        if (player->GetLootGUID())
+        {
+            WorldPacket release(CMSG_LOOT_RELEASE, 8);
+            release << player->GetLootGUID();
+            actor.session->HandleLootReleaseOpcode(release);
+        }
+        actor.lootId = Text(request, "id");
+        actor.lootTarget = chest->GetGUID();
+        actor.lootSpell = opening->Id;
+        if (++actor.nextLootCastCount == 0)
+            ++actor.nextLootCastCount;
+        actor.lootCastCount = actor.nextLootCastCount;
+        actor.lootDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _lootWindows.erase(actor.session.get());
+            _openingLoot[actor.session.get()] = {actor.lootId, actor.lootTarget, actor.lootSpell, actor.lootCastCount};
+        }
+        WorldPacket cast(CMSG_CAST_SPELL, 32);
+        cast << actor.lootCastCount << opening->Id << uint8(0);
+        SpellCastTargets targets;
+        targets.SetGOTarget(chest);
+        targets.Write(cast);
+        actor.session->HandleCastSpellOpcode(cast);
+        LootWindow window;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (auto found = _lootWindows.find(actor.session.get()); found != _lootWindows.end())
+                window = found->second;
+        }
+        if (PickupReceiptMatches(actor.lootId, actor.lootTarget.GetRawValue(), window.valid,
+            window.openingRequest, window.guid.GetRawValue(), player->GetLootGUID().GetRawValue()))
+        {
+            ObjectGuid target = actor.lootTarget;
+            ClearOpeningLoot(actor);
+            return StoreLootWindow(request, actor, target, window);
+        }
+        if (!MatchingOpeningCast(actor, player))
+        {
+            CancelOpeningLoot(actor, "opening_rejected");
+            auto response = Error(request, "opening_rejected", "The normal spell handler rejected or interrupted opening");
+            response["result"] = Json::object{{"status", "failed"}, {"request_id", Text(request, "id")},
+                {"reason", "opening_rejected"}, {"target_guid", std::to_string(chest->GetGUID().GetRawValue())},
+                {"opening_spell_id", opening->Id}, {"operation", "open_loot"}, {"pending", false}};
+            return response;
+        }
+        return Response(request, true, {{"status", "accepted"}, {"request_id", actor.lootId},
+            {"target_guid", std::to_string(actor.lootTarget.GetRawValue())}, {"opening_spell_id", actor.lootSpell},
+            {"pending", true}, {"operation", "open_loot"}, {"timeout_ms", 20000}, {"movement_suspended", true}});
+    }
+
+    Json::object StoreLootWindow(Json::object const& request, Actor& actor, ObjectGuid guid, LootWindow const& window)
+    {
+        Player* player = actor.session->GetPlayer();
         uint32 moneyBefore = player->GetMoney();
         if (window.gold)
         {
@@ -3901,8 +4159,9 @@ private:
             take << slot.slot;
             actor.session->HandleAutostoreLootItemOpcode(take);
             uint32 after = player->GetItemCount(slot.item);
-            if (after > before)
-                acquired.push_back(Json::object{{"item_id", slot.item}, {"count", after - before}});
+            uint32 stored = StoredPickupCount(before, after);
+            if (stored)
+                acquired.push_back(Json::object{{"item_id", slot.item}, {"count", stored}});
             else
                 ++skipped;
         }
@@ -4092,6 +4351,7 @@ private:
     std::map<WorldSession*, ObjectGuid> _ownedCharacters;
     TextEmoteCorrelations _emoteCorrelations;
     std::map<WorldSession*, LootWindow> _lootWindows;
+    std::map<WorldSession*, OpeningLoot> _openingLoot;
     std::map<WorldSession*, uint32> _rewardReceipts;
     std::map<WorldSession*, CommerceMenu> _vendorMenus;
     std::map<WorldSession*, CommerceMenu> _trainerMenus;
