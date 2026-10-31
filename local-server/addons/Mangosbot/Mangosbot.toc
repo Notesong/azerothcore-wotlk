@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: MaNGOSBot (AzerothCore)
+## Author: Notesong; original MaNGOSBot UI by ike3
+## Notes: Ordinary Playerbots companions, roles and gear controls for AzerothCore. Vesper remains in Presence.
+## Version: 1.0.0-acore
+## DefaultState: Enabled
+## LoadOnDemand: 0
+## SavedVariables: frameopts, mangosbot_options
+Mangosbot.lua

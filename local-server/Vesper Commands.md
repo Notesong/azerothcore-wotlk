@@ -155,6 +155,33 @@ hidden reasoning omitted. Check its timestamp and session: it may be historical.
 It is not proof that a chosen game action succeeded. A lane has no recorded request
 until its next real model call; inspecting it does not generate one.
 
+## Ordinary companion bots and the addon
+
+Type `/bot` to open the updated MaNGOSBot window. It controls ordinary native
+Playerbots; Vesper's Presence character is excluded from its roster and orders.
+The window supports companion login/logout, recruiting by class, party orders,
+server inspection, role presets and explicit gear matching.
+
+Create a Horde alt on Aurenne's normal player account, log the alt out, and use
+`.playerbots bot add AltName` on Aurenne to bring it in as a companion. Remove it
+with `.playerbots bot remove AltName`. Ordinary online bots can be invited with
+`/invite Name` when available.
+
+For a pooled companion, use `.playerbots bot addclass warrior` (or another class).
+If an exact level/gear match is wanted, run `.playerbots bot init=auto BotName`
+before choosing a role, since initialization can rebuild talents too.
+
+In the addon, select the companion and choose **Tank**, **Healer** or **Damage**.
+Wait for the server confirmation, then use **Match gear** if wanted. Unsupported
+class roles are disabled. Gear matching generates upgrades; it does not strip
+old equipment first. Check a new tank's weapon/shield and available abilities.
+
+For dungeon planning, count Vesper as damage/support for now. A dedicated tank
+or healer role for his model-controlled character needs separate development
+and testing; the ordinary bot addon does not assign him a role.
+
+Full addon notes: [MaNGOSBot guide](C:/Games/AzerothCore/addons/Mangosbot/README.md).
+
 ## Starting, pausing and reconnecting
 
 - Start the game server with `C:\Games\AzerothCore\Start Server.cmd`.

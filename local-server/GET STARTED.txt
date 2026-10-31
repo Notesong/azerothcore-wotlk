@@ -22,6 +22,10 @@ Distant bots use rotating background activity and adaptive load scaling.
 Companions can be summoned by class, for example: .playerbots bot addclass priest
 After adding companions, use .playerbots bot init=auto * to match their level and gear to yours.
 Use .playerbots bot help for the bot command list. Your own alternate characters can also be used as bots.
+Type /bot to open the updated MaNGOSBot interface for ordinary companion bots.
+Select a companion, choose Tank/Healer/Damage, wait for confirmation, then Match gear if wanted.
+Vesper remains controlled through Presence and is excluded from these addon controls.
+Addon instructions: addons\Mangosbot\README.md.
 
 Economy
 Auction House Bot stocks all three markets and bids on reasonably priced player listings.

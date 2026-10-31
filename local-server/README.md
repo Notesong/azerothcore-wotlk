@@ -11,6 +11,7 @@ repository at `modules/mod-presence-bridge/`.
 | `modules/mod-presence-bridge/` | `C:/Games/AzerothCore/source/modules/mod-presence-bridge/` |
 | `local-server/harness/` | `C:/Games/AzerothCore/harness/` |
 | `local-server/scripts/` | `C:/Games/AzerothCore/scripts/` |
+| `local-server/addons/Mangosbot/` | Source package; runtime `Mangosbot.lua` and `.toc` go in the WoW client's `Interface/AddOns/Mangosbot/` |
 | `local-server/*.cmd`, user notes, installation metadata | `C:/Games/AzerothCore/` |
 | `local-server/config-examples/` | Manual examples; never copied directly over live settings |
 
@@ -63,6 +64,13 @@ The Start shortcut logs the existing Vesper character in after world/administrat
 readiness using `Ensure-Vesper-Online.py` and the installed Presence Python environment.
 It reuses an existing bridge-owned session, never takes over another client, and
 does not launch/resume the model controller. Start or Resume that separately in Presence.
+
+The MaNGOSBot replacement UI uses the installed native Playerbots commands for
+ordinary companions. It provides roster controls, role presets with server
+confirmation, explicit gear matching and party orders. Vesper is excluded from
+its controls. See `addons/Mangosbot/README.md` for usage and source assembly.
+Its offline Lua 5.1 tests are in `addons/tests/`; Python `lupa` supplies the test
+runtime and is not a game dependency. Legacy client assets are not vendored here.
 
 ## Historical migration helpers
 
