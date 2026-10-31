@@ -59,6 +59,10 @@ Do not run `Configure-Server.ps1` over a configured server: it is the historical
 initial setup helper and restores older baseline choices. `First-Start.ps1` is
 also a historical initial provisioning helper. Routine operation uses
 `Start Server.cmd`, `Stop Server.cmd`, and `Server Status.cmd`.
+The Start shortcut logs the existing Vesper character in after world/administration
+readiness using `Ensure-Vesper-Online.py` and the installed Presence Python environment.
+It reuses an existing bridge-owned session, never takes over another client, and
+does not launch/resume the model controller. Start or Resume that separately in Presence.
 
 ## Historical migration helpers
 

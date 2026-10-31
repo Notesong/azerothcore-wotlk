@@ -158,9 +158,12 @@ until its next real model call; inspecting it does not generate one.
 ## Starting, pausing and reconnecting
 
 - Start the game server with `C:\Games\AzerothCore\Start Server.cmd`.
+  The desktop shortcut also logs Vesper's existing character in. You can run it
+  again while the server is running; it keeps an already connected Vesper online.
 - In [Presence](http://127.0.0.1:5173/), open **Utilities → Game Player → AzerothCore**.
   Click **Start AzerothCore** if stopped, or **Resume** if it shows **Vesper · Paused**.
-  Normal startup can attach Vesper without a WoW window.
+  This starts his decisions/conversation. Desktop startup preserves the controller's
+  paused/stopped setting and does not call a model. No separate WoW window is needed.
 - Use Presence's pause/stop controls for the model loop. Pausing is not a logout.
 - Stop the game server with `C:\Games\AzerothCore\Stop Server.cmd` to save characters.
 

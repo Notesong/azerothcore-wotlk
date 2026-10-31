@@ -146,6 +146,18 @@ function Show-Status {
     Write-Host "`nClient realm address: 127.0.0.1"
 }
 
+function Ensure-VesperOnline {
+    $loginScript = Join-Path $Root 'scripts\Ensure-Vesper-Online.py'
+    $pythonExe = 'C:\Files\Programs\Codex\Presence\working\backend\.venv\Scripts\python.exe'
+    Assert-Files @($loginScript, $pythonExe, $ServerCredentials)
+    Write-Host "Checking Vesper's character login..."
+    & $pythonExe '-B' $loginScript
+    if ($LASTEXITCODE -ne 0) {
+        throw ('The game services are ready, but Vesper could not log in. ' +
+            'Check the login error above, then retry Start AzerothCore. Presence model controls were not changed.')
+    }
+}
+
 function Start-Server {
     Assert-Files @($WorldExe, $AuthExe, $MySqlExe, $MySqlAdminExe,
         $MySqlIni, $DatabaseCredentials, $AuthConfig, $WorldConfig)
@@ -183,6 +195,7 @@ function Start-Server {
     Write-Host 'Waiting for the world server to accept players. First startup may take several minutes...'
     Wait-Listener 'World server' $WorldExe 8085 $StartupTimeoutSeconds
     Wait-Listener 'World administration' $WorldExe 3443 60
+    Ensure-VesperOnline
     Write-Host "`nAzerothCore is ready. You can close this window and ChatGPT; the server runs independently."
     Write-Host 'Use the Stop AzerothCore desktop shortcut when you finish; it saves characters and closes the database safely.'
     Write-Host ''
