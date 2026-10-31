@@ -3969,10 +3969,10 @@ private:
 
     bool ChestSourceUsable(Player* player, GameObject* chest)
     {
+        // Normal opening spell validation is authoritative; generic object LOS is diagnostic only.
         return chest && chest->GetGoType() == GAMEOBJECT_TYPE_CHEST && chest->isSpawned()
             && !chest->HasGameObjectFlag(GO_FLAG_NOT_SELECTABLE) && player->HaveAtClient(chest)
-            && player->CanSeeOrDetect(chest) && chest->IsWithinDistInMap(player)
-            && player->IsWithinLOSInMap(chest);
+            && player->CanSeeOrDetect(chest) && chest->IsWithinDistInMap(player);
     }
 
     bool MatchingOpeningCast(Actor const& actor, Player* player)
@@ -4065,7 +4065,7 @@ private:
             return Error(request, "unsupported_loot_source", "Loot supports creature corpses and ordinary chests");
         if (!ChestSourceUsable(player, chest))
             return Error(request, "chest_unavailable",
-                "Chest must be spawned, selectable, visible and in normal range/LOS");
+                "Chest must be spawned, selectable, visible and in normal range");
         SpellInfo const* opening = chest->GetSpellForLock(player);
         if (!opening || !opening->HasEffect(SPELL_EFFECT_OPEN_LOCK))
             return Error(request, "opening_unavailable",
