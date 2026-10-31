@@ -312,6 +312,24 @@ Item use, corpse recovery, coded gossip, auctions and player trade are not
 implemented and are not advertised as capabilities. There are no automatic
 GM grants, resurrection, equipment changes, leveling or combat rotations.
 
+## Personal catch-up XP
+
+The optional catch-up hook multiplies one configured character's ordinary XP
+award while their level is below a configured reference character's level. It is
+disabled by default. Set `PresenceBridge.CatchupXP.Enable = 1`, `Character`,
+`LeadCharacter` and `Multiplier` in `presence_bridge.conf`; the example pair is
+Vesper/Aurenne at 2.0. A config reload updates the cached settings.
+
+Kill, quest/LFG quest, exploration and battleground XP use the existing player
+hook. The receiver's exact cached GUID and account must match. Reference levels
+come from CharacterCache, including offline characters; no group membership,
+model call or SQL query is required. At equal/higher level the next award is
+normal, and falling behind enables catch-up again. Each award is atomic, so a
+large reward can carry the receiver past the matching level. Ordinary eligibility,
+group/global/module rates, rested and recruit-a-friend rules remain in effect.
+Missing identities/levels or unsafe amounts leave the ordinary award unchanged.
+This does not grant levels or XP directly or change any other character's rate.
+
 ## Lifetime and threads
 
 The module owns its socketless `WorldSession` instances, pumps their asynchronous

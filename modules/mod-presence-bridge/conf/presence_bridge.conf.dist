@@ -2,3 +2,16 @@
 # Control is limited to module-owned headless sessions on this account.
 PresenceBridge.Account = "PRESENCE"
 PresenceBridge.AllowedCharacters = "Vesper,Acoreprobe"
+
+# Personal catch-up XP. Disabled by default; never changes global/playerbot rates.
+# Character and LeadCharacter are normalized character names resolved from the
+# current CharacterCache on each eligible award (including an offline lead).
+# Only the cached Character GUID/account may receive the multiplier, and only
+# when its level is lower. Missing identity/level means normal XP.
+# The check is per award; a single large award can pass the matching level.
+# Normal eligibility, global/module rates, rested XP and RaF rules still apply.
+# Kill, quest, dungeon-finder quest, exploration and battleground XP are supported.
+PresenceBridge.CatchupXP.Enable = 0
+PresenceBridge.CatchupXP.Character = "Vesper"
+PresenceBridge.CatchupXP.LeadCharacter = "Aurenne"
+PresenceBridge.CatchupXP.Multiplier = 2.0

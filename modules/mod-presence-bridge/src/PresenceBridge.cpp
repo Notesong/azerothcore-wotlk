@@ -4113,6 +4113,8 @@ public:
 };
 }
 
+void AddPresenceCatchupXpScripts();
+
 void Addmod_presence_bridgeScripts()
 {
     new Presence::Commands();
@@ -4121,4 +4123,5 @@ void Addmod_presence_bridgeScripts()
     new Presence::QuestReceipts();
     new Presence::ProtectionUnits();
     new Presence::ProtectionSpells();
+    AddPresenceCatchupXpScripts();
 }
