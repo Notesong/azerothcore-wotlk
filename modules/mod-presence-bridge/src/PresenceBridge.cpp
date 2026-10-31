@@ -1181,6 +1181,17 @@ public:
         return result;
     }
 
+    bool OwnsEmoteObserver(Player const* player)
+    {
+        WorldSession* session = player ? player->GetSession() : nullptr;
+        if (!session)
+            return false;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto owned = _ownedCharacters.find(session);
+        return IsOwnedEmoteObserver(session->IsHeadless(), _ownedSessions.contains(session),
+            player->GetGUID().GetRawValue(), owned == _ownedCharacters.end() ? 0 : owned->second.GetRawValue());
+    }
+
     void CaptureTextEmote(Player* sender, uint32 emote, uint32 variant, ObjectGuid target)
     {
         if (!sender || !sEmotesTextStore.LookupEntry(emote))
@@ -1200,7 +1211,7 @@ public:
         for (auto identity : observers)
         {
             Player* observer = ObjectAccessor::GetPlayer(sender->GetMap(), identity);
-            if (!observer || !OwnedPlayer(observer) || !observer->HaveAtClient(sender)
+            if (!observer || !OwnsEmoteObserver(observer) || !observer->HaveAtClient(sender)
                 || !observer->CanSeeOrDetect(sender)
                 || !observer->IsWithinDistInMap(sender, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_TEXTEMOTE)))
                 continue;

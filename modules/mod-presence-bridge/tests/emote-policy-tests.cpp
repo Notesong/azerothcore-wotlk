@@ -51,6 +51,15 @@ Presence::TextEmoteCorrelation Record()
 int main()
 {
     using namespace Presence;
+    // Each advertised bridge character can observe emotes; Moon's protected
+    // character name is not part of this independent session/GUID boundary.
+    Check(IsOwnedEmoteObserver(true, true, 1001, 1001));
+    Check(IsOwnedEmoteObserver(true, true, 2001, 2001));
+    Check(!IsOwnedEmoteObserver(false, true, 1001, 1001));
+    Check(!IsOwnedEmoteObserver(true, false, 1001, 1001));
+    Check(!IsOwnedEmoteObserver(true, true, 0, 0));
+    Check(!IsOwnedEmoteObserver(true, true, 1001, 2001));
+    Check(!IsOwnedEmoteObserver(true, true, 1001, 0));
     std::set<std::uint32_t> ids;
     for (auto const& named : OrdinaryEmotes)
     {

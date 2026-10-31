@@ -15,6 +15,11 @@
 
 namespace Presence
 {
+inline bool IsOwnedEmoteObserver(bool headless, bool sessionOwned, std::uint64_t player, std::uint64_t sessionPlayer)
+{
+    return headless && sessionOwned && player && player == sessionPlayer;
+}
+
 // IDs are the installed core's SharedDefines.h TextEmotes values. The bridge
 // also checks these bindings against the actual enum and EmotesText DBC.
 enum class OrdinaryTextEmote : std::uint32_t
