@@ -93,6 +93,13 @@ and quest counts authoritative. Vesper's Solanian's Journal pickup was verified
 through the completed request, inventory and 1/1 quest counter. Settings and
 model choices were preserved.
 
+The follow-up chest visibility correction removes an extra generic object LOS
+veto from bridge eligibility while retaining the normal opening spell's checks.
+Both Scroll and Orb were collected successfully with generic LOS false; all
+three Solanian items are now 1/1. The local catalog clarifies that `loot` performs
+Opening internally and `cast` targets units. The paused controller was stopped
+cleanly for the instruction reload; start it again in Presence when ready.
+
 [Vesper Player Checklist.md](Vesper%20Player%20Checklist.md) tracks the player loop
 across quests, bags, gear, supplies, travel, combat, recovery and social behavior.
 Checked items identify installed mechanical options; unfinished behavior and

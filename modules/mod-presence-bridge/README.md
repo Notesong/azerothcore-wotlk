@@ -335,9 +335,14 @@ without adding a global emote listener or widening ordinary client visibility.
 `loot(target_guid)` supports eligible creature corpses and ordinary chest game
 objects, including quest books. Chest pickup uses the character's normal known
 opening spell and the normal game-object spell target. It applies ordinary lock,
-range, line-of-sight, cast, quest and storage checks. It does not force an unlock
+range, visibility, cast, quest and storage checks. It does not force an unlock
 or expose unopened loot-table contents. `interact` on a chest directs the caller
 to `loot` rather than accepting a no-op.
+
+The observed generic `line_of_sight` ray is diagnostic for chest objects. Opening
+uses the normal spell handler's game-object validation, without an additional
+generic LOS veto. This matters for floor-level quest items that a player can
+normally open even when that ray reports false.
 
 A cast-time opening returns `accepted` under its original request UUID. Bounded
 `pending_loot` facts identify the source, spell and remaining timeout. The world

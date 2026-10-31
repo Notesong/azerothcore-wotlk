@@ -2,8 +2,8 @@
   "InstalledFor": "Solo play with Playerbots and AutoBalance",
   "Root": "C:\\Games\\AzerothCore",
   "CoreRepository": "https://github.com/mod-playerbots/azerothcore-wotlk.git",
-  "CoreBranch": "feature/vesper-quest-pickup-2026-10-31",
-  "CoreCommit": "5d7ed22a66c583909a159ed66aa4761fba36b49c",
+  "CoreBranch": "fix/vesper-chest-los-2026-10-31",
+  "CoreCommit": "e009657c108314cc895f4de19cc537a44865db6d",
   "PlayerbotsCommit": "05a1f6fceb8a32aa879b13f5f48934c6e46a774c",
   "AutoBalanceCommit": "1d707cb61a0962ab01e4123681e2d3b66cc558a2",
   "Configuration": "RelWithDebInfo x64",
@@ -76,6 +76,12 @@
     "OrdinaryChests": true,
     "NormalOpeningCast": true,
     "OriginalRequestMonitoring": true,
-    "JournalPickupVerified": true
-  }
+    "JournalPickupVerified": true,
+    "ScrollPickupVerified": true,
+    "OrbPickupVerified": true,
+    "GenericObjectLOSDiagnosticOnly": true,
+    "SolanianAllItemsComplete": true
+  },
+  "LastVesperChestLOSUpdateUTC": "2026-10-31T23:26:31.380025+00:00",
+  "PresenceChestLOSCommit": "a276ea80607420d93dbb9768b057a9892a8a72f5"
 }

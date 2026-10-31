@@ -30,6 +30,7 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 
 - [x] Normal interaction with nearby NPCs and game objects; known active unit-targeted spells can be cast through normal validation.
 - [x] Pick up eligible quest books and ordinary chest loot through the normal opening spell, permitted loot slots and verified inventory gains. The original request continues locally through a cast-time opening.
+- [x] Verified all three Solanian items in play: Journal, Scroll and Orb each reached inventory and 1/1. Scroll and Orb succeeded while generic object LOS was false, using normal game-object opening validation.
 - [ ] Add generic carried-item use, including quest items with the required unit/object/location target and normal cooldown/consumption checks.
 - [ ] Demonstrate quest-specific reasoning: choose a relevant object or spell, such as Arcane Torrent when a quest actually calls for it, using the observed learned spell and objective rather than an invented ability or target.
 - [ ] Cover quest mechanics that need ground targeting, item targeting or other controls beyond the current unit-cast/object-interaction actions.
@@ -148,6 +149,6 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 ## Verification and next pass
 
-The installed worldserver reports `5d7ed22a66c5` (quest-object pickup build, with emotes and catch-up XP retained). The pickup update passed 61 isolated native checks, 1,091 offline controller checks and 76 harness checks. A normal opening cast on Vesper's nearby Solanian's Journal resolved under the original request to one stored item; fresh inventory and quest observations both confirmed 1/1, with no pending pickup left. The broader quest still needs its other items. Earlier emote verification covered targeted-wave and untargeted-hug receipts on a separate test character, followed by a real directed-emote reply in play. This document does not claim a fresh successful live playtest for every installed option.
+The installed worldserver reports `e009657c1083` (chest visibility correction, with emotes and catch-up XP retained). Pickup work passed 61 isolated native checks, 1,091 offline controller checks and 76 harness checks; the correction reran the 61 native checks and 1,091 existing controller cases. Normal opening requests for Journal, Scroll and Orb each resolved to one stored item, with fresh inventory and quest counters confirming 1/1. Scroll and Orb retained a false generic LOS diagnostic while normal opening succeeded. Solanian's Belongings is ready for turn-in. These were operator validation pickups; the full model-chosen quest loop remains a playtest item. Earlier emote checks were followed by a real directed-emote reply in play. This document does not claim a fresh successful live playtest for every installed option.
 
 Prioritize one observable loop at a time: verify the facts and action contract, let Vesper choose, inspect the actual receipt, and record what still fails. Completion means both a working mechanic and a convincing player behavior test, with Moon protection intact.

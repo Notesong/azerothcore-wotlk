@@ -32,8 +32,11 @@ and checks actual item gains. The same request remains pending until it complete
 or fails; routine observation does not recast it. Movement, combat or another
 chosen action can interrupt it.
 
-Fresh inventory and quest counts show what he actually collected. His journal
-pickup was verified at 1/1; Solanian's orb and scroll are separate objectives.
+Fresh inventory and quest counts show what he actually collected. His journal,
+orb and scroll pickups were verified at 1/1 each; Solanian's Belongings is ready
+to turn in. Generic object line of sight is diagnostic for chest pickup; the
+normal Opening handler decides access. `loot` performs Opening internally,
+including when an informative `opening_spell_id` is present in the observation.
 Carried quest-item activation remains on the development checklist.
 
 ## Custom in-game commands
