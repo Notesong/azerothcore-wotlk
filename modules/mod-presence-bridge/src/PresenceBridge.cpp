@@ -4121,7 +4121,8 @@ private:
         if (!MatchingOpeningCast(actor, player))
         {
             CancelOpeningLoot(actor, "opening_rejected");
-            auto response = Error(request, "opening_rejected", "The normal spell handler rejected or interrupted opening");
+            auto response = Error(request, "opening_rejected",
+                "The normal spell handler rejected or interrupted opening");
             response["result"] = Json::object{{"status", "failed"}, {"request_id", Text(request, "id")},
                 {"reason", "opening_rejected"}, {"target_guid", std::to_string(chest->GetGUID().GetRawValue())},
                 {"opening_spell_id", opening->Id}, {"operation", "open_loot"}, {"pending", false}};
