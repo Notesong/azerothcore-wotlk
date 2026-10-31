@@ -126,6 +126,21 @@ controller unpaused.
 
 ## MCP inspection tools
 
+Vesper's body view now has shared readable stat labels and advisory gear guidance.
+For Paladin melee leveling, it favors usable weapon upgrades and Strength for
+damage, Stamina/armor for survival, secondary Intellect for mana and low priority
+for Spirit. A different explicitly agreed role takes precedence. This does not
+force equipment changes or assert that his talent specialization was observed.
+
+Rarity alone is not an upgrade rule. Candidate eligibility and weapon/shield
+tradeoffs matter; unresolved suffix/enchantment bonuses stay unknown. Inspecting
+a weapon adds its exposed first-component base DPS, not total character DPS.
+Numeric stats, damage bounds, weapon speed and existing collection caps remain.
+
+`wow_model_context` with `source: "live_preview"` can show this current view
+without a model call. `last_request` shows the original request that was recorded;
+new guidance appears there after the next genuine body-model call.
+
 These are tool calls for Vesper's ChatGPT/MCP connection, not WoW chat commands.
 They use the existing **Local Context Gateway**, are read-only, and never start
 models, resume the controller, move Vesper or make him speak. Refresh that

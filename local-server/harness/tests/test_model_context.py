@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import builtins
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -216,6 +219,202 @@ class ModelContextTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.inspector.model_context(**arguments)
         self.assertEqual(self.client.observations, [])
+
+
+class ProjectionLoaderTests(unittest.TestCase):
+    CONTEXT = """\
+from tools.game_player_native_gear import stamp, LOAD_TOKEN
+from tools.game_player_native_gear import LOAD_TOKEN as SECOND_TOKEN
+assert LOAD_TOKEN is SECOND_TOKEN
+
+def compact_native_observation(observation, mode='gameplay'):
+    return {'helper': stamp(observation['number']), 'mode': mode}
+"""
+    HELPER = """\
+import math
+LOAD_TOKEN = object()
+
+def stamp(number):
+    return math.sqrt(number)
+"""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="projection-loader-unit-", dir=Path(__file__).parent)
+        self.root = Path(self.directory.name)
+        self.tools = self.root / "backend" / "tools"
+        self.tools.mkdir(parents=True)
+        self.context = self.tools / "game_player_native_context.py"
+        self.helper = self.tools / "game_player_native_gear.py"
+        self.context.write_text(self.CONTEXT, encoding="utf-8")
+        self.helper.write_text(self.HELPER, encoding="utf-8")
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_fresh_standalone_loader_needs_no_tools_package_or_global_import_mutation(self):
+        # -I -S removes the current directory, PYTHONPATH, and site packages.
+        # The child imports only the stdlib harness and these fixed fixtures.
+        code = textwrap.dedent("""\
+            import builtins
+            import math
+            from pathlib import Path
+            import sys
+            sys.path.insert(0, sys.argv[2])
+            from presence_acore.model_context import _projection
+            assert not any(name == 'tools' or name.startswith('tools.') for name in sys.modules)
+            before_path = list(sys.path)
+            normal_import = builtins.__import__
+
+            def guard(name, globals=None, locals=None, fromlist=(), level=0):
+                if name == 'tools' or name.startswith(('tools.', 'app.')):
+                    raise AssertionError('External package import was attempted: ' + name)
+                return normal_import(name, globals, locals, fromlist, level)
+
+            builtins.__import__ = guard
+            projection = _projection(Path(sys.argv[1]))
+            assert projection({'number': 81}, 'gameplay') == {'helper': 9.0, 'mode': 'gameplay'}
+            assert projection({'number': 16}, 'social') == {'helper': 4.0, 'mode': 'social'}
+            assert builtins.__import__ is guard
+            assert sys.path == before_path
+            assert not any(name == 'tools' or name.startswith('tools.') for name in sys.modules)
+            assert 'presence_readonly_native_gear' not in sys.modules
+            assert 'presence_readonly_native_projection' not in sys.modules
+            assert not list(Path(sys.argv[1]).rglob('__pycache__'))
+            print('isolated projection passed')
+        """)
+        process = subprocess.run(
+            [sys.executable, "-I", "-S", "-B", "-c", code, str(self.root), str(Path(__file__).resolve().parents[1])],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(process.stdout.strip(), "isolated projection passed")
+        self.assertFalse(list(self.root.rglob("__pycache__")))
+
+    def test_old_projection_without_helper_import_remains_lazy_and_compatible(self):
+        self.helper.unlink()
+        self.context.write_text(
+            "def compact_native_observation(observation, mode='gameplay'):\n"
+            "    return {'sequence': observation['sequence'], 'mode': mode}\n", encoding="utf-8",
+        )
+        original = Path.open
+        opened = []
+
+        def track(path, *args, **kwargs):
+            opened.append(path.name)
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "open", track):
+            projection = _projection(self.root)
+            self.assertEqual(projection({"sequence": 42}), {"sequence": 42, "mode": "gameplay"})
+        self.assertEqual(opened, ["game_player_native_context.py"])
+
+    def test_only_exact_absolute_helper_import_is_special_cased(self):
+        original = builtins.__import__
+        delegated = []
+
+        def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name.startswith("tools") or level:
+                delegated.append((name, level))
+                raise ImportError("Ordinary import delegation was preserved.")
+            return original(name, globals, locals, fromlist, level)
+
+        for name, level in (("tools.game_player_native_gear_extra", 0), ("tools", 0),
+                            ("tools.game_player_native_gear", 1)):
+            with self.subTest(name=name, level=level):
+                self.context.write_text(
+                    f"__import__({name!r}, globals(), locals(), ('stamp',), {level})\n", encoding="utf-8",
+                )
+                with patch.object(builtins, "__import__", guarded_import):
+                    with self.assertRaises(ImportError):
+                        _projection(self.root)
+                self.assertEqual(delegated[-1], (name, level))
+
+    def test_missing_or_oversize_helper_fails_closed_before_observation_without_echo(self):
+        for kind in ("missing", "oversize"):
+            with self.subTest(kind=kind):
+                if kind == "missing":
+                    self.helper.unlink(missing_ok=True)
+                else:
+                    self.helper.write_bytes(b"# DO-NOT-ECHO\n" + b"x" * MAX_CAPTURE_BYTES)
+                client = FakeClient()
+                inspector = Inspector(client, presence_root=self.root, data_dir=self.root)
+                value = inspector.model_context(source="live_preview")
+                self.assertFalse(value["available"])
+                self.assertEqual(value["error"]["code"], "preview_unavailable")
+                self.assertNotIn("preview", value)
+                self.assertNotIn("DO-NOT-ECHO", json.dumps(value))
+                self.assertEqual(client.observations, [])
+                self.assertFalse(list(self.root.rglob("__pycache__")))
+
+    def test_helper_is_compiled_once_per_projection_without_registering_a_module(self):
+        original = Path.open
+        opened = []
+        before_path = list(sys.path)
+        private_before = {name for name in sys.modules if name.startswith("presence_readonly_native_")}
+
+        def track(path, *args, **kwargs):
+            opened.append(path.name)
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "open", track):
+            projection = _projection(self.root)
+            self.assertEqual(projection({"number": 25})["helper"], 5.0)
+            self.assertEqual(projection({"number": 36})["helper"], 6.0)
+        self.assertEqual(opened.count("game_player_native_gear.py"), 1)
+        self.assertEqual(sys.path, before_path)
+        self.assertEqual({name for name in sys.modules if name.startswith("presence_readonly_native_")}, private_before)
+        self.assertFalse(list(self.root.rglob("__pycache__")))
+
+    def test_actual_staged_projection_preserves_gear_labels_guidance_and_raw_snapshot(self):
+        workspace = Path(__file__).resolve().parents[2]
+        source_directory = workspace / "gear-integration" / "stage"
+        if not (source_directory / self.helper.name).is_file():
+            source_directory = Path("C:/Files/Programs/Codex/Presence/working/backend/tools")
+        if not all((source_directory / target.name).is_file() for target in (self.context, self.helper)):
+            self.skipTest("Presence gear projection source is not installed")
+        for target in (self.context, self.helper):
+            target.write_bytes((source_directory / target.name).read_bytes())
+        observation = {
+            "sequence": 8, "self": {"name": "Vesper", "class": 2, "level": 12},
+            "inventory": [{"guid": "100", "name": "Test sword", "class": 2, "inventory_type": 13,
+                           "damage_min": 10, "damage_max": 20, "delay_ms": 2000,
+                           "stats": [{"type": 4, "value": 3}], "usable": True, "can_equip_now": True}],
+            "equipment": [{"guid": "101", "name": "Test chest", "class": 4,
+                           "stats": [{"type": 7, "value": 2}]}],
+            "inspected_item": {"guid": "100", "class": 2,
+                               "damage_min": 10, "damage_max": 20, "delay_ms": 2000,
+                               "stats": [{"type": 4, "value": 3}]},
+        }
+        before = deepcopy(observation)
+        client = FakeClient()
+        client.observe = lambda *args, **kwargs: deepcopy(observation)
+        inspector = Inspector(client, presence_root=self.root, data_dir=self.root)
+        original_import = builtins.__import__
+
+        def deny_tools(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "tools" or name.startswith(("tools.", "app.")):
+                raise AssertionError("Presence imports are forbidden in standalone inspection.")
+            return original_import(name, globals, locals, fromlist, level)
+
+        with patch.object(builtins, "__import__", deny_tools):
+            value = inspector.model_context(source="live_preview")
+            social = inspector.model_context(lane="social", source="live_preview")
+        self.assertTrue(value["available"])
+        view = value["preview"]["native_observation"]
+        self.assertEqual(view["item_fact_formats"]["stat_names"], {"4": "Strength", "7": "Stamina"})
+        self.assertEqual(view["inventory"][0]["stats"], [[4, 3]])
+        self.assertEqual({key: view["inventory"][0][key] for key in ("damage_min", "damage_max", "delay_ms")},
+                         {"damage_min": 10, "damage_max": 20, "delay_ms": 2000})
+        for item in view["inventory"] + view["equipment"]:
+            self.assertNotIn("base_component_dps", item)
+        self.assertEqual(view["inspected_item"]["base_component_dps"], 7.5)
+        self.assertIn("first template damage component", view["item_fact_formats"]["base_component_dps"])
+        self.assertEqual(view["gear_guidance"]["source"], "advisory_default")
+        self.assertIn("not an observed talent specialization", view["gear_guidance"]["profile"])
+        self.assertTrue(social["available"])
+        self.assertNotIn("gear_guidance", social["preview"]["native_observation"])
+        self.assertEqual(observation, before)
+        self.assertFalse(list(self.root.rglob("__pycache__")))
 
 
 if __name__ == "__main__":

@@ -42,6 +42,13 @@ not in this public core fork. This folder contains integration helpers and the
 public game-side inspection harness, not those applications, private profiles,
 persona, memories, journals, or transcripts.
 
+The Presence body view includes shared readable stat labels and advisory Paladin
+melee-leveling gear guidance. Its pure projection dependency is loaded by the
+read-only harness from the fixed Presence sibling path, without importing the
+controller or providers or changing global import paths. Live previews show the
+current projection; recorded requests and Moon incidents retain original inputs.
+See `Vesper Commands.md` for inspection and equipment guidance notes.
+
 `Configure-Presence-Native.py` intentionally requires a locally supplied
 `PRESENCE_PROFILE_ID` environment variable. No actual profile identifier is
 included. Set it to your intended eligible profile only after reviewing the

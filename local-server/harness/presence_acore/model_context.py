@@ -1,10 +1,12 @@
 """Read-only, fixed-file model-input diagnostics; never load the Full controller."""
 from __future__ import annotations
 
+import builtins
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+from types import ModuleType
 from typing import Any, Callable
 
 
@@ -213,7 +215,33 @@ def _projection(presence_root: Path) -> Callable[..., dict[str, Any]]:
         source = handle.read(MAX_CAPTURE_BYTES + 1)
     if len(source) > MAX_CAPTURE_BYTES:
         raise ValueError("projection_unavailable")
-    namespace: dict[str, Any] = {"__name__": "presence_readonly_native_projection", "__file__": str(path)}
+    normal_import = builtins.__import__
+    projection_builtins = vars(builtins).copy()
+    gear_module: ModuleType | None = None
+
+    def projection_import(name: str, globals: Any = None, locals: Any = None,
+                          fromlist: Any = (), level: int = 0) -> Any:
+        nonlocal gear_module
+        if name != "tools.game_player_native_gear" or level != 0:
+            return normal_import(name, globals, locals, fromlist, level)
+        if gear_module is None:
+            # Resolve this one pure sibling independently of the MCP process's
+            # import path. Never import a tools package, Full, or a provider.
+            helper_path = path.with_name("game_player_native_gear.py")
+            with helper_path.open("rb") as handle:
+                helper_source = handle.read(MAX_CAPTURE_BYTES + 1)
+            if len(helper_source) > MAX_CAPTURE_BYTES:
+                raise ValueError("projection_unavailable")
+            private = ModuleType("presence_readonly_native_gear")
+            private.__file__ = str(helper_path)
+            private.__dict__["__builtins__"] = projection_builtins
+            exec(compile(helper_source, str(helper_path), "exec"), private.__dict__)
+            gear_module = private
+        return gear_module
+
+    projection_builtins["__import__"] = projection_import
+    namespace: dict[str, Any] = {"__name__": "presence_readonly_native_projection", "__file__": str(path),
+                                 "__builtins__": projection_builtins}
     exec(compile(source, str(path), "exec"), namespace)
     function = namespace.get("compact_native_observation")
     if not callable(function):
