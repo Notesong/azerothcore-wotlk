@@ -9,6 +9,11 @@ header includes now use `../src/`.
 source/account isolation, lower/equal/higher levels, offline reference levels,
 supported XP sources and unsafe arithmetic. It has its own `main` too.
 
+`emote-policy-tests.cpp` checks named gesture mappings, packet parsing and bounded
+sender/observer/target correlation. Its 134 isolated checks cover unknown target
+identity, stale records, same-name different GUIDs, malformed packets and logout
+cleanup. It also has its own `main`.
+
 Each file has its own `main` and must be compiled as a separate C++20 executable.
 For example, from this directory with an available C++ compiler:
 

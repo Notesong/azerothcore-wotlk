@@ -312,6 +312,24 @@ Item use, corpse recovery, coded gossip, auctions and player trade are not
 implemented and are not advertised as capabilities. There are no automatic
 GM grants, resurrection, equipment changes, leveling or combat rotations.
 
+## Ordinary emotes
+
+Named gestures use `{"type":"emote","emote":"wave","target_guid":"..."}`.
+Supported names are bow, cheer, clap, dance, hug, kiss, laugh, nod, point, salute,
+shrug, slap, smile, thank and wave. Omitting the target, or supplying zero, means
+untargeted; selection does not supply a default. The normal text-emote handler
+applies the gesture, and completion requires its actual delivered self receipt.
+Custom `{"type":"emote","text":"..."}` prose remains a separate action form
+and cannot include a target GUID.
+
+Only normal text-emote packets delivered to an owned session become events.
+Animation packets do not duplicate them. Events expose sender, gesture, direction
+and explicit target facts. The wire packet has only a target name, so a narrow
+normal-handler hook provides bounded, short-lived GUID provenance. It emits no
+event itself and never derives identity from names. Unknown or stale provenance
+stays unknown. A directed social gesture can therefore identify its recipient
+without adding a global emote listener or widening ordinary client visibility.
+
 ## Personal catch-up XP
 
 The optional catch-up hook multiplies one configured character's ordinary XP

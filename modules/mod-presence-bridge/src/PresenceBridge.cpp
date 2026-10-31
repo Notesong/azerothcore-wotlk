@@ -31,6 +31,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "PresenceCommercePolicy.h"
+#include "PresenceEmotePolicy.h"
 #include "PresenceGuardTelemetry.h"
 #include "PresenceQuestCommand.h"
 #include "PresenceProtectionPolicy.h"
@@ -70,6 +71,28 @@
 namespace Presence
 {
 namespace Json = boost::json;
+
+static_assert(uint32(OrdinaryTextEmote::Bow) == TEXT_EMOTE_BOW);
+static_assert(uint32(OrdinaryTextEmote::Cheer) == TEXT_EMOTE_CHEER);
+static_assert(uint32(OrdinaryTextEmote::Clap) == TEXT_EMOTE_CLAP);
+static_assert(uint32(OrdinaryTextEmote::Dance) == TEXT_EMOTE_DANCE);
+static_assert(uint32(OrdinaryTextEmote::Hug) == TEXT_EMOTE_HUG);
+static_assert(uint32(OrdinaryTextEmote::Kiss) == TEXT_EMOTE_KISS);
+static_assert(uint32(OrdinaryTextEmote::Laugh) == TEXT_EMOTE_LAUGH);
+static_assert(uint32(OrdinaryTextEmote::Nod) == TEXT_EMOTE_NOD);
+static_assert(uint32(OrdinaryTextEmote::Point) == TEXT_EMOTE_POINT);
+static_assert(uint32(OrdinaryTextEmote::Salute) == TEXT_EMOTE_SALUTE);
+static_assert(uint32(OrdinaryTextEmote::Shrug) == TEXT_EMOTE_SHRUG);
+static_assert(uint32(OrdinaryTextEmote::Slap) == TEXT_EMOTE_SLAP);
+static_assert(uint32(OrdinaryTextEmote::Smile) == TEXT_EMOTE_SMILE);
+static_assert(uint32(OrdinaryTextEmote::Thank) == TEXT_EMOTE_THANK);
+static_assert(uint32(OrdinaryTextEmote::Wave) == TEXT_EMOTE_WAVE);
+
+uint64 EmoteMilliseconds()
+{
+    return uint64(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 
 std::string Text(Json::object const& object, char const* key, std::string fallback = "")
 {
@@ -1158,6 +1181,56 @@ public:
         return result;
     }
 
+    void CaptureTextEmote(Player* sender, uint32 emote, uint32 variant, ObjectGuid target)
+    {
+        if (!sender || !sEmotesTextStore.LookupEntry(emote))
+            return;
+        std::vector<ObjectGuid> observers;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _emoteCorrelations.ForgetSender(sender->GetGUID().GetRawValue());
+            for (auto const& [session, identity] : _ownedCharacters)
+            {
+                observers.push_back(identity);
+                if (observers.size() >= 32)
+                    break;
+            }
+        }
+        std::vector<TextEmoteCorrelation> records;
+        for (auto identity : observers)
+        {
+            Player* observer = ObjectAccessor::GetPlayer(sender->GetMap(), identity);
+            if (!observer || !OwnedPlayer(observer) || !observer->HaveAtClient(sender)
+                || !observer->CanSeeOrDetect(sender)
+                || !observer->IsWithinDistInMap(sender, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_TEXTEMOTE)))
+                continue;
+            TextEmoteCorrelation record;
+            record.Observer = identity.GetRawValue();
+            record.Sender = sender->GetGUID().GetRawValue();
+            record.Emote = emote;
+            record.Variant = variant;
+            Unit* unit = target ? ObjectAccessor::GetUnit(*sender, target) : nullptr;
+            // The core can render an empty target name when a nonzero request
+            // GUID fails lookup. Only an explicit zero is authoritative untargeted.
+            record.HasTarget = bool(target);
+            record.TargetKnown = !target;
+            if (unit && observer->HaveAtClient(unit) && observer->CanSeeOrDetect(unit)
+                && observer->IsWithinDistInMap(unit, 90))
+            {
+                record.TargetKnown = true;
+                record.Target = unit->GetGUID().GetRawValue();
+                record.TargetIsPlayer = unit->IsPlayer();
+            }
+            records.push_back(record);
+        }
+        // This transient hook context never emits events. Only a matching packet
+        // actually delivered to an owned headless session can consume it.
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        uint64 now = EmoteMilliseconds();
+        for (auto const& record : records)
+            _emoteCorrelations.Remember(record, now);
+    }
+
     void Packet(WorldSession* session, WorldPacket const& packet)
     {
         {
@@ -1177,6 +1250,9 @@ public:
         Json::object event;
         switch (packet.GetOpcode())
         {
+            case SMSG_TEXT_EMOTE:
+                event = TextEmoteEvent(session, packet);
+                break;
             case SMSG_MESSAGECHAT:
             case SMSG_GM_MESSAGECHAT:
                 event = ChatEvent(packet);
@@ -2190,6 +2266,8 @@ private:
         std::lock_guard<std::mutex> lock(_eventMutex);
         _creationResults.erase(session);
         _ownedSessions.erase(session);
+        if (auto owned = _ownedCharacters.find(session); owned != _ownedCharacters.end())
+            _emoteCorrelations.ForgetCharacter(owned->second.GetRawValue());
         _ownedCharacters.erase(session);
         _lootWindows.erase(session);
         _rewardReceipts.erase(session);
@@ -3407,8 +3485,12 @@ private:
             return Error(request, "dead", "Character is dead; no automatic revive or other GM shortcut is applied");
         if (auto commerce = CommerceAction(request, action, actor, player, type))
             return std::move(*commerce);
+        if (type == "emote" && action.if_contains("emote"))
+            return NamedEmoteAction(request, action, actor, player);
         if (type == "say" || type == "emote")
         {
+            if (type == "emote" && action.if_contains("target_guid"))
+                return Error(request, "invalid_emote", "Custom emote text has no target; use a named emote");
             std::string text = Text(action, "text");
             if (text.empty() || text.size() > 255 || text.find_first_of("\r\n") != std::string::npos)
                 return Error(request, "invalid_text", "Text must contain 1-255 bytes without line breaks");
@@ -3826,6 +3908,105 @@ private:
             {"items", std::move(acquired)}, {"copper", gained}, {"skipped_slots", skipped}, {"partial", skipped > 0}});
     }
 
+    Json::object NamedEmoteAction(Json::object const& request, Json::object const& action, Actor& actor, Player* player)
+    {
+        auto text = action.if_contains("text");
+        if (text && !text->is_null() && (!text->is_string() || !text->as_string().empty()))
+            return Error(request, "invalid_emote", "Choose a named emote or custom text, not both");
+        uint32 emote = OrdinaryEmoteIdByName(Text(action, "emote"));
+        EmotesTextEntry const* entry = emote ? sEmotesTextStore.LookupEntry(emote) : nullptr;
+        if (!entry)
+            return Error(request, "unsupported_emote", "The named ordinary emote is not supported");
+        ObjectGuid target(GuidNumber(action, "target_guid"));
+        if (target)
+        {
+            Unit* unit = ObjectAccessor::GetUnit(*player, target);
+            if (!unit || !player->HaveAtClient(unit) || !player->CanSeeOrDetect(unit)
+                || !player->IsWithinDistInMap(unit, 90))
+                return Error(request, "emote_target_not_visible",
+                    "Named emote target must be currently visible nearby");
+        }
+        uint64 before;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            before = _eventSequence;
+        }
+        // Explicit zero remains untargeted. Do not change selection, follow or combat intent.
+        uint32 constexpr variant = 1;
+        WorldPacket packet(CMSG_TEXT_EMOTE, 16);
+        packet << emote << variant << target;
+        actor.session->HandleTextEmoteOpcode(packet);
+        bool delivered = false;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto queue = _events.find(player->GetGUID());
+            if (queue != _events.end())
+                for (auto const& event : queue->second)
+                    if (event.at("id").to_number<uint64>() > before && Text(event, "type") == "text_emote"
+                        && Text(event, "actor_guid") == std::to_string(player->GetGUID().GetRawValue())
+                        && Unsigned(event, "emote_id") == emote && Unsigned(event, "emote_variant") == variant
+                        && event.at("target_guid").is_string()
+                        && Text(event, "target_guid") == std::to_string(target.GetRawValue()))
+                    {
+                        delivered = true;
+                        break;
+                    }
+        }
+        if (!delivered)
+            return Error(request, "emote_not_sent", "The normal emote handler did not deliver a matching receipt");
+        return Response(request, true, {{"status", "completed"}, {"request_id", Text(request, "id")},
+            {"emote", std::string(OrdinaryEmoteNameById(emote))}, {"emote_id", emote}, {"animation_id", entry->textid},
+            {"target_guid", std::to_string(target.GetRawValue())}});
+    }
+
+    Json::object TextEmoteEvent(WorldSession* session, WorldPacket const& packet)
+    {
+        auto frame = DecodeTextEmote(std::span<std::uint8_t const>(packet.contents(), packet.size()));
+        if (!frame)
+            return {};
+        ObjectGuid sender(frame->Sender);
+        if (!sender.IsPlayer() || !sEmotesTextStore.LookupEntry(frame->Emote))
+            return {};
+        Player* observer = session->GetPlayer();
+        if (!observer)
+            return {};
+        std::optional<TextEmoteCorrelation> correlation;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            correlation = _emoteCorrelations.Take(observer->GetGUID().GetRawValue(), *frame, EmoteMilliseconds());
+        }
+        if (correlation && correlation->TargetKnown && correlation->HasTarget)
+        {
+            Unit* target = ObjectAccessor::GetUnit(*observer, ObjectGuid(correlation->Target));
+            if (!target || !observer->HaveAtClient(target) || !observer->CanSeeOrDetect(target)
+                || !observer->IsWithinDistInMap(target, 90)
+                || target->GetNameForLocaleIdx(session->GetSessionDbLocaleIndex()) != frame->TargetName)
+                correlation.reset();
+        }
+        std::string actorName;
+        sCharacterCache->GetCharacterNameByGuid(sender, actorName);
+        std::string_view name = OrdinaryEmoteNameById(frame->Emote);
+        Json::object event{{"type", "text_emote"}, {"actor_guid", std::to_string(frame->Sender)},
+            {"actor_name", actorName}, {"actor_is_player", true},
+            {"direction", sender == observer->GetGUID() ? "outgoing" : "incoming"},
+            {"emote_id", frame->Emote}, {"emote_name", nullptr}, {"emote_variant", frame->Variant},
+            {"target_guid", nullptr}, {"target_name", frame->TargetName}, {"target_is_player", nullptr},
+            {"explicit_target", nullptr}, {"target_guid_source", "packet_has_no_guid"}};
+        if (!name.empty())
+            event["emote_name"] = std::string(name);
+        if (correlation)
+        {
+            event["explicit_target"] = correlation->HasTarget;
+            if (correlation->TargetKnown)
+            {
+                event["target_guid"] = std::to_string(correlation->Target);
+                event["target_is_player"] = correlation->TargetIsPlayer;
+                event["target_guid_source"] = "normal_text_emote_hook";
+            }
+        }
+        return event;
+    }
+
     Json::object ChatEvent(WorldPacket const& source)
     {
         try
@@ -3898,6 +4079,7 @@ private:
     std::map<WorldSession*, int> _creationResults;
     std::set<WorldSession*> _ownedSessions;
     std::map<WorldSession*, ObjectGuid> _ownedCharacters;
+    TextEmoteCorrelations _emoteCorrelations;
     std::map<WorldSession*, LootWindow> _lootWindows;
     std::map<WorldSession*, uint32> _rewardReceipts;
     std::map<WorldSession*, CommerceMenu> _vendorMenus;
@@ -3985,6 +4167,17 @@ public:
     {
         // This core invokes the hook after RewardQuest, including unannounced tracking rewards.
         Bridge::Instance().QuestRewarded(player, quest);
+    }
+};
+
+class TextEmotes : public PlayerScript
+{
+public:
+    TextEmotes() : PlayerScript("presence_bridge_text_emotes", {PLAYERHOOK_ON_TEXT_EMOTE}) { }
+
+    void OnPlayerTextEmote(Player* player, uint32 textEmote, uint32 variant, ObjectGuid target) override
+    {
+        Bridge::Instance().CaptureTextEmote(player, textEmote, variant, target);
     }
 };
 
@@ -4120,6 +4313,7 @@ void Addmod_presence_bridgeScripts()
     new Presence::Commands();
     new Presence::World();
     new Presence::Packets();
+    new Presence::TextEmotes();
     new Presence::QuestReceipts();
     new Presence::ProtectionUnits();
     new Presence::ProtectionSpells();
