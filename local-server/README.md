@@ -70,6 +70,12 @@ It adds packet-backed NPC quest choices and normal turn-in transitions, with the
 matching Presence source installed separately from its private repository. Live
 MCP checks confirm the new facts and capabilities. See `Vesper Commands.md`.
 
+The personal catch-up XP hook was also built and installed on October 31. The
+local configuration gives Vesper 2x ordinary XP while below Aurenne's saved level,
+including when ungrouped or she is offline. At parity the following award is
+normal. Public module defaults remain disabled. Settings and behavior are in
+`Vesper Commands.md`; this feature needs no model calls or database schema change.
+
 `Configure-Presence-Native.py` intentionally requires a locally supplied
 `PRESENCE_PROFILE_ID` environment variable. No actual profile identifier is
 included. Set it to your intended eligible profile only after reviewing the

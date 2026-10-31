@@ -252,6 +252,21 @@ Full addon notes: [MaNGOSBot guide](C:/Games/AzerothCore/addons/Mangosbot/README
 
 Full setup and behavior notes: [harness README](C:/Games/AzerothCore/harness/README.md).
 
+## Catch-up experience
+
+Installed October 31, 2026. Vesper receives **2× his normal XP** whenever his
+level is below Aurenne's. Equal/higher level means normal XP on the next award;
+falling behind activates the bonus again. It works outside a party and while
+Aurenne is offline, using her saved level. Kill, quest/LFG quest and exploration
+XP are covered; ordinary eligibility, group and rested XP rules still apply.
+The check is per award, so a large reward can carry him past the matching level.
+No model call or manual quest tracking is needed for this bonus.
+
+Settings are in `server/configs/modules/presence_bridge.conf` under
+`PresenceBridge.CatchupXP.*`. The current multiplier is 2.0; set `Enable = 0`
+to disable it. Once this binary is installed, `.reload config` updates the cached
+settings without a server restart.
+
 ## Local Qwen body and attention
 
 Installed October 31, 2026. The body uses **Qwen3.5-4B Q4_K_XL**, alias

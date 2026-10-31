@@ -2,8 +2,8 @@
   "InstalledFor": "Solo play with Playerbots and AutoBalance",
   "Root": "C:\\Games\\AzerothCore",
   "CoreRepository": "https://github.com/mod-playerbots/azerothcore-wotlk.git",
-  "CoreBranch": "feature/vesper-quests-bags-2026-10-30",
-  "CoreCommit": "9e2e26b6265d1c73edd6ec053324fe4921aa7481",
+  "CoreBranch": "feature/vesper-catchup-xp-2026-10-31",
+  "CoreCommit": "cdaaef5a2617f33ef0ee8e01f87a6e1db7d1c197",
   "PlayerbotsCommit": "05a1f6fceb8a32aa879b13f5f48934c6e46a774c",
   "AutoBalanceCommit": "1d707cb61a0962ab01e4123681e2d3b66cc558a2",
   "Configuration": "RelWithDebInfo x64",
@@ -45,5 +45,20 @@
   "SourceBackupBranch": "backup/vesper-2026-10-30",
   "SourceUpdateBranch": "update/vesper-2026-10-30",
   "LastVesperQuestBagUpdateUTC": "2026-10-31T06:28:26.599494+00:00",
-  "PresenceQuestBagCommit": "4d55b960d10048d9be6daeb7bb4a3b8b1e450d63"
+  "PresenceQuestBagCommit": "4d55b960d10048d9be6daeb7bb4a3b8b1e450d63",
+  "LastVesperCatchupUpdateUTC": "2026-10-31T19:46:06.315329+00:00",
+  "VesperCatchupXP": {
+    "Enabled": true,
+    "Character": "Vesper",
+    "LeadCharacter": "Aurenne",
+    "Multiplier": 2.0,
+    "Rule": "receiver_level_below_reference_level",
+    "OfflineReferenceSupported": true
+  },
+  "VesperBodyModel": {
+    "Provider": "local",
+    "Model": "qwen3.5-4b-action",
+    "BaseUrl": "http://127.0.0.1:8082/v1",
+    "Reasoning": "none"
+  }
 }
