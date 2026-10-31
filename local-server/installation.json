@@ -2,8 +2,8 @@
   "InstalledFor": "Solo play with Playerbots and AutoBalance",
   "Root": "C:\\Games\\AzerothCore",
   "CoreRepository": "https://github.com/mod-playerbots/azerothcore-wotlk.git",
-  "CoreBranch": "feature/vesper-emotes-2026-10-31",
-  "CoreCommit": "478fdb90a0e286ce96cf0bed735e55b7019bcf2c",
+  "CoreBranch": "feature/vesper-quest-pickup-2026-10-31",
+  "CoreCommit": "5d7ed22a66c583909a159ed66aa4761fba36b49c",
   "PlayerbotsCommit": "05a1f6fceb8a32aa879b13f5f48934c6e46a774c",
   "AutoBalanceCommit": "1d707cb61a0962ab01e4123681e2d3b66cc558a2",
   "Configuration": "RelWithDebInfo x64",
@@ -68,5 +68,14 @@
     "DirectedPlayerGestures": true,
     "EmoteCooldownSeconds": 90,
     "SocialPlaytestPending": true
+  },
+  "LastVesperPickupUpdateUTC": "2026-10-31T22:39:54.819061+00:00",
+  "PresencePickupCommit": "6fe8c0056453c4e01ef4b628b7368fcf1e7b92f0",
+  "VesperPickup": {
+    "CreatureCorpses": true,
+    "OrdinaryChests": true,
+    "NormalOpeningCast": true,
+    "OriginalRequestMonitoring": true,
+    "JournalPickupVerified": true
   }
 }

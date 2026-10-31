@@ -24,6 +24,18 @@ receiving your gesture does not reset it or require a reply.
 
 These are social gestures, not fixed commands that order a particular reply.
 
+## Quest-object pickup
+
+Vesper can choose `loot` for an eligible quest book or ordinary chest. A chosen
+pickup stops movement for its normal opening cast, then collects permitted loot
+and checks actual item gains. The same request remains pending until it completes
+or fails; routine observation does not recast it. Movement, combat or another
+chosen action can interrupt it.
+
+Fresh inventory and quest counts show what he actually collected. His journal
+pickup was verified at 1/1; Solanian's orb and scroll are separate objectives.
+Carried quest-item activation remains on the development checklist.
+
 ## Custom in-game commands
 
 Type these in WoW chat. Both work while Vesper's model controller is paused and

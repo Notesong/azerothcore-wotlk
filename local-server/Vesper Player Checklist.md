@@ -29,13 +29,14 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 ## 2. Quest objects, items and purpose-specific spells — partial
 
 - [x] Normal interaction with nearby NPCs and game objects; known active unit-targeted spells can be cast through normal validation.
+- [x] Pick up eligible quest books and ordinary chest loot through the normal opening spell, permitted loot slots and verified inventory gains. The original request continues locally through a cast-time opening.
 - [ ] Add generic carried-item use, including quest items with the required unit/object/location target and normal cooldown/consumption checks.
 - [ ] Demonstrate quest-specific reasoning: choose a relevant object or spell, such as Arcane Torrent when a quest actually calls for it, using the observed learned spell and objective rather than an invented ability or target.
 - [ ] Cover quest mechanics that need ground targeting, item targeting or other controls beyond the current unit-cast/object-interaction actions.
 
 ## 3. Quest discovery and navigation — partial
 
-- [x] Expose held objectives, nearby units/objects and nearby questgiver relations/status.
+- [x] Expose held objectives, nearby units/objects, observed quest relevance, opening/range facts and nearby questgiver relations/status.
 - [ ] Connect objectives to relevant observed mobs, objects and NPCs; discover available quests and choose a useful next objective.
 - [ ] Add grounded route/travel information and completion checks. Distinguish a known destination, a remembered lead and an unknown location; no magic GPS or fabricated coordinates.
 
@@ -73,7 +74,7 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 ## 9. Loot, rolls and confirmations — basic looting installed; remainder incomplete
 
-- [x] Loot an eligible nearby source under normal ownership, range and bag rules.
+- [x] Loot eligible creature corpses and ordinary chest objects under normal ownership, lock, quest, range and bag rules. Pending openings retain their original request identity; failed/unfinished pickups do not become collected-item working notes.
 - [ ] Add observed Need/Greed/Pass rolls and model-chosen responses, including equipment usefulness and group expectations.
 - [ ] Handle bind-on-pickup/other confirmations, unique limits, quest loot, full bags and partial/error results explicitly; avoid loops or assumptions that every item was received.
 
@@ -135,6 +136,7 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
 - [x] Send ordinary named/targeted WoW emotes through the real emote channel, including hug, point, kiss and slap. Named gestures and custom prose are distinct; completion requires an actual normal-handler delivery receipt.
 - [x] Expose actor + emote + authoritative explicit target facts. Directed incoming player gestures can reach the social inbox once per event; unknown/untargeted gestures do not force a direct wake. Target identity is never guessed from a name.
+- [x] Observed in play: Aurenne directed comfort at Vesper and he chose a targeted nod in response.
 - [ ] Playtest natural replies, greetings and downtime expression with cooldowns; avoid combat distraction, repeated lines and constant permission questions.
 
 ## 20. Continuity, intentions and asking for help — partial
@@ -146,6 +148,6 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 ## Verification and next pass
 
-The installed worldserver reports `478fdb90a0e2` (emote build, with catch-up XP retained). Capability/status checks used the bridge's action handlers and observations, installed Presence native transport/body context, and the two guides linked above. A separate test character produced verified targeted-wave and untargeted-hug receipts with correct recipient facts; it was logged out afterward. The update passed 141 isolated native checks, 1,065 offline controller checks and 76 harness checks. Real human-to-Vesper social behavior remains a playtest item. This document does not claim a fresh successful live playtest for every installed option.
+The installed worldserver reports `5d7ed22a66c5` (quest-object pickup build, with emotes and catch-up XP retained). The pickup update passed 61 isolated native checks, 1,091 offline controller checks and 76 harness checks. A normal opening cast on Vesper's nearby Solanian's Journal resolved under the original request to one stored item; fresh inventory and quest observations both confirmed 1/1, with no pending pickup left. The broader quest still needs its other items. Earlier emote verification covered targeted-wave and untargeted-hug receipts on a separate test character, followed by a real directed-emote reply in play. This document does not claim a fresh successful live playtest for every installed option.
 
 Prioritize one observable loop at a time: verify the facts and action contract, let Vesper choose, inspect the actual receipt, and record what still fails. Completion means both a working mechanic and a convincing player behavior test, with Moon protection intact.

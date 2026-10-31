@@ -308,7 +308,7 @@ say, whisper and party messages. Only packets addressed to the bridge-owned
 session are captured; this does not add a global chat listener or widen normal
 chat visibility. `gm_message` records the packet format, not the speaker's
 current in-game GM mode.
-Item use, corpse recovery, coded gossip, auctions and player trade are not
+Carried-item use, corpse recovery, coded gossip, auctions and player trade are not
 implemented and are not advertised as capabilities. There are no automatic
 GM grants, resurrection, equipment changes, leveling or combat rotations.
 

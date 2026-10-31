@@ -85,6 +85,14 @@ Normal-handler delivery was checked with a separate test character, including
 explicit target identity and untargeted gestures. Installation and behavior
 checks remain separate; see `Vesper Player Checklist.md` for outstanding playtests.
 
+The quest-object pickup update was installed later that day. A chosen chest
+pickup uses the normal opening cast, follows its original request to a terminal
+result and stores only permitted offered loot. Presence suppresses routine
+recasts during opening, preserves newer action feedback and keeps actual item
+and quest counts authoritative. Vesper's Solanian's Journal pickup was verified
+through the completed request, inventory and 1/1 quest counter. Settings and
+model choices were preserved.
+
 [Vesper Player Checklist.md](Vesper%20Player%20Checklist.md) tracks the player loop
 across quests, bags, gear, supplies, travel, combat, recovery and social behavior.
 Checked items identify installed mechanical options; unfinished behavior and
@@ -135,9 +143,9 @@ with the private Presence source history.
 
 ## Checks and exclusions
 
-The harness has offline unit tests under `harness/tests/`. Six standalone C++
+The harness has offline unit tests under `harness/tests/`. Seven standalone C++
 regression sources are preserved under `modules/mod-presence-bridge/tests/`,
-including the newer XP and emote policies. Each has its own executable entry
+including the newer XP, emote and pickup policies. Each has its own executable entry
 point. They are outside the module's automatically collected `src/` directory.
 
 This is a source backup, not a character/world backup. Credentials, databases and
