@@ -127,9 +127,9 @@ These action names are internal planner controls, not slash commands to type:
 and `gossip_select`. Ordinary requests above go through his models and need the
 controller unpaused.
 
-## Quest and bag update: prepared, awaiting installation
+## Quest dialogs, rewards and bags
 
-The next patch adds current NPC quest dialogs, advertised reward choices and item
+Installed October 31, 2026. Vesper receives current NPC quest dialogs, advertised reward choices and item
 comparisons, the normal item-check-to-reward transition, explicit quest status
 names and nearby questgiver relations. Luna chooses whether to accept, turn in
 or select a reward. A dialog opening is distinct from receiving a reward.
@@ -141,7 +141,7 @@ WoW slash commands. Normal quest handlers still check eligibility, objectives,
 required items, money and inventory capacity. Querying a quest can trigger the
 game's ordinary auto-accept behavior, so it is not a read-only MCP operation.
 
-The patch also exposes backpack and bag capacity, separating general-purpose free
+His view also exposes backpack and bag capacity, separating general-purpose free
 space from specialty bags. The existing `equip_item` action can equip a carried
 bag or request a particular bag slot. Luna receives guidance to notice usable
 bags and compare capacity; the controller does not select equipment for him.
@@ -151,9 +151,10 @@ Individual objective-counter ticks do not summon a new model decision each time.
 Lost quest-action replies use the original request identity for one recovery
 check, instead of automatically resending an acceptance or reward choice.
 
-This patch is saved as source and staged Presence files. It still needs a native
-server build and installation before these additional facts and steps are live.
-The controller's saved pause remains in place.
+The server and Presence changes are installed. MCP's `live_preview` shows the new
+facts immediately; a quest dialog is empty until Vesper opens one normally.
+`last_request` changes after the next genuine model request. Start the controller
+in Presence when ready to test his choices; the saved pause remains in place.
 
 Remaining player-loop work includes targeted quest-item/consumable use, talent
 spending, dungeon Need/Greed/Pass choices, hearthstone/flight/bind actions, and

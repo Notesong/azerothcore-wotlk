@@ -2,8 +2,8 @@
   "InstalledFor": "Solo play with Playerbots and AutoBalance",
   "Root": "C:\\Games\\AzerothCore",
   "CoreRepository": "https://github.com/mod-playerbots/azerothcore-wotlk.git",
-  "CoreBranch": "update/vesper-2026-10-30",
-  "CoreCommit": "25a0dd69555eb5d0f0e671c251979eae7f25d414",
+  "CoreBranch": "feature/vesper-quests-bags-2026-10-30",
+  "CoreCommit": "9e2e26b6265d1c73edd6ec053324fe4921aa7481",
   "PlayerbotsCommit": "05a1f6fceb8a32aa879b13f5f48934c6e46a774c",
   "AutoBalanceCommit": "1d707cb61a0962ab01e4123681e2d3b66cc558a2",
   "Configuration": "RelWithDebInfo x64",
@@ -43,5 +43,7 @@
   "PlayerbotsUpstreamBranch": "master",
   "LastUpstreamUpdateUTC": "2026-10-30T22:16:45.812676+00:00",
   "SourceBackupBranch": "backup/vesper-2026-10-30",
-  "SourceUpdateBranch": "update/vesper-2026-10-30"
+  "SourceUpdateBranch": "update/vesper-2026-10-30",
+  "LastVesperQuestBagUpdateUTC": "2026-10-31T06:28:26.599494+00:00",
+  "PresenceQuestBagCommit": "4d55b960d10048d9be6daeb7bb4a3b8b1e450d63"
 }
