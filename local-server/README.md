@@ -76,6 +76,8 @@ The MaNGOSBot replacement UI uses the installed native Playerbots commands for
 ordinary companions. It provides roster controls, role presets with server
 confirmation, explicit gear matching and party orders. Vesper is excluded from
 its controls. See `addons/Mangosbot/README.md` for usage and source assembly.
+`Bot Guide.md` is the installed-version command reference for ordinary companions,
+custom alts, recruitment, role setup and upkeep. `Vesper Commands.md` covers Vesper separately.
 Its offline Lua 5.1 tests are in `addons/tests/`; Python `lupa` supplies the test
 runtime and is not a game dependency. Legacy client assets are not vendored here.
 

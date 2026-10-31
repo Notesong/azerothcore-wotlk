@@ -2,6 +2,9 @@
 
 Current AzerothCore setup — October 28, 2026.
 
+For ordinary Playerbots, custom alts, recruitment and addon controls, see
+[Bot Guide.md](Bot%20Guide.md) (verified October 30, 2026).
+
 ## Custom in-game commands
 
 Type these in WoW chat. Both work while Vesper's model controller is paused and
