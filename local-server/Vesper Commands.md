@@ -10,11 +10,11 @@ For ordinary Playerbots, custom alts, recruitment and addon controls, see
 ## Social gestures
 
 Select Vesper, then use an ordinary WoW emote such as `/wave`, `/hug`, `/kiss`,
-`/point`, `/laugh`, `/dance` or `/slap`. The emote update gives his social lane
-the actor, gesture and explicit recipient. An untargeted or uncertain gesture
-does not count as a direct request for his attention. This needs the updated
-server and a newly started Presence controller; deployment status is recorded
-in the checklist.
+`/point`, `/laugh`, `/dance` or `/slap`. His social lane receives the actor,
+gesture and explicit recipient. An untargeted or uncertain gesture does not
+count as a direct request for his attention. The update is installed; start
+Presence's AzerothCore controller to use it. Deployment and playtest status
+are recorded in the checklist.
 
 He can choose bow, cheer, clap, dance, hug, kiss, laugh, nod, point, salute,
 shrug, slap, smile, thank or wave, with an explicit recipient or no recipient.

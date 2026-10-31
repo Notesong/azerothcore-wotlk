@@ -2,8 +2,8 @@
   "InstalledFor": "Solo play with Playerbots and AutoBalance",
   "Root": "C:\\Games\\AzerothCore",
   "CoreRepository": "https://github.com/mod-playerbots/azerothcore-wotlk.git",
-  "CoreBranch": "feature/vesper-catchup-xp-2026-10-31",
-  "CoreCommit": "cdaaef5a2617f33ef0ee8e01f87a6e1db7d1c197",
+  "CoreBranch": "feature/vesper-emotes-2026-10-31",
+  "CoreCommit": "478fdb90a0e286ce96cf0bed735e55b7019bcf2c",
   "PlayerbotsCommit": "05a1f6fceb8a32aa879b13f5f48934c6e46a774c",
   "AutoBalanceCommit": "1d707cb61a0962ab01e4123681e2d3b66cc558a2",
   "Configuration": "RelWithDebInfo x64",
@@ -60,5 +60,13 @@
     "Model": "qwen3.5-4b-action",
     "BaseUrl": "http://127.0.0.1:8082/v1",
     "Reasoning": "none"
+  },
+  "LastVesperEmoteUpdateUTC": "2026-10-31T20:49:09.031382+00:00",
+  "PresenceEmoteCommit": "151da12ff848201b9d13eb5ac9d4d78195d3d1c6",
+  "VesperEmotes": {
+    "NamedGestures": 15,
+    "DirectedPlayerGestures": true,
+    "EmoteCooldownSeconds": 90,
+    "SocialPlaytestPending": true
   }
 }

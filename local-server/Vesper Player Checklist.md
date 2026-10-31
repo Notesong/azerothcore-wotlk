@@ -130,11 +130,11 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Add observed bank access, storage contents/capacity and intentional deposit/withdrawal.
 - [ ] Add observed mail, attachments/money, costs and deliberate send/claim actions with recipient and receipt checks.
 
-## 19. Conversation and real emotes — conversation exists; emote work in progress
+## 19. Conversation and real emotes — mechanics installed; needs playtest
 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
-- [ ] **In progress:** send ordinary named/targeted WoW emotes through the real emote channel, including requested hug, point, kiss and slap where verified, rather than treating the current free-text emote action as equivalent.
-- [ ] **In progress:** expose incoming actor + emote + explicit target so Vesper can distinguish “Aurenne waves at Vesper” from a gesture aimed elsewhere. Mark complete only after installed transport and observation are verified.
+- [x] Send ordinary named/targeted WoW emotes through the real emote channel, including hug, point, kiss and slap. Named gestures and custom prose are distinct; completion requires an actual normal-handler delivery receipt.
+- [x] Expose actor + emote + authoritative explicit target facts. Directed incoming player gestures can reach the social inbox once per event; unknown/untargeted gestures do not force a direct wake. Target identity is never guessed from a name.
 - [ ] Playtest natural replies, greetings and downtime expression with cooldowns; avoid combat distraction, repeated lines and constant permission questions.
 
 ## 20. Continuity, intentions and asking for help — partial
@@ -146,6 +146,6 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 ## Verification and next pass
 
-The installed worldserver reports `cdaaef5a2617` (catch-up XP build). Capability/status checks used the current bridge's action handlers and observations, installed Presence native transport/body context, and the two guides linked above. Emote changes being developed are deliberately left unchecked. This document does not claim a fresh successful live playtest for every installed option.
+The installed worldserver reports `478fdb90a0e2` (emote build, with catch-up XP retained). Capability/status checks used the bridge's action handlers and observations, installed Presence native transport/body context, and the two guides linked above. A separate test character produced verified targeted-wave and untargeted-hug receipts with correct recipient facts; it was logged out afterward. The update passed 141 isolated native checks, 1,065 offline controller checks and 76 harness checks. Real human-to-Vesper social behavior remains a playtest item. This document does not claim a fresh successful live playtest for every installed option.
 
 Prioritize one observable loop at a time: verify the facts and action contract, let Vesper choose, inspect the actual receipt, and record what still fails. Completion means both a working mechanic and a convincing player behavior test, with Moon protection intact.

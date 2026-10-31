@@ -76,13 +76,14 @@ including when ungrouped or she is offline. At parity the following award is
 normal. Public module defaults remain disabled. Settings and behavior are in
 `Vesper Commands.md`; this feature needs no model calls or database schema change.
 
-The ordinary-emote update is prepared, not yet installed. Its native path uses
+The ordinary-emote update was built and installed on October 31, 2026. Its native path uses
 normal named WoW emotes (including hug, point, kiss and slap), with optional
 explicit visible targets and a matching normal-handler receipt. Incoming text
 emotes carry actor and emote facts; target GUIDs require fresh hook provenance,
 not a guessed name match. Animation packets do not create duplicate social events.
-Installation and behavior checks remain separate; follow `Vesper Commands.md`
-for the verified installed status.
+Normal-handler delivery was checked with a separate test character, including
+explicit target identity and untargeted gestures. Installation and behavior
+checks remain separate; see `Vesper Player Checklist.md` for outstanding playtests.
 
 [Vesper Player Checklist.md](Vesper%20Player%20Checklist.md) tracks the player loop
 across quests, bags, gear, supplies, travel, combat, recovery and social behavior.
