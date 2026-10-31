@@ -29,6 +29,7 @@ Vesper remains controlled through Presence and is excluded from these addon cont
 Addon instructions: addons\Mangosbot\README.md.
 Current companion commands, custom alts and role setup: Bot Guide.md.
 Vesper's separate commands and Moon protection: Vesper Commands.md.
+Implemented player features and remaining playtests: Vesper Player Checklist.md.
 
 Economy
 Auction House Bot stocks all three markets and bids on reasonably priced player listings.

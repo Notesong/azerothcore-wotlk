@@ -1,9 +1,28 @@
 # Vesper command reference
 
-Current AzerothCore setup — October 28, 2026.
+Current AzerothCore setup — October 31, 2026.
+
+Feature progress and remaining playtests: [Vesper Player Checklist.md](Vesper%20Player%20Checklist.md).
 
 For ordinary Playerbots, custom alts, recruitment and addon controls, see
 [Bot Guide.md](Bot%20Guide.md) (verified October 30, 2026).
+
+## Social gestures
+
+Select Vesper, then use an ordinary WoW emote such as `/wave`, `/hug`, `/kiss`,
+`/point`, `/laugh`, `/dance` or `/slap`. The emote update gives his social lane
+the actor, gesture and explicit recipient. An untargeted or uncertain gesture
+does not count as a direct request for his attention. This needs the updated
+server and a newly started Presence controller; deployment status is recorded
+in the checklist.
+
+He can choose bow, cheer, clap, dance, hug, kiss, laugh, nod, point, salute,
+shrug, slap, smile, thank or wave, with an explicit recipient or no recipient.
+Custom free-text emotes remain separate. He chooses whether to respond, and
+combat still takes priority. His current emote cooldown is **90 seconds**;
+receiving your gesture does not reset it or require a reply.
+
+These are social gestures, not fixed commands that order a particular reply.
 
 ## Custom in-game commands
 

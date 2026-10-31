@@ -21,7 +21,7 @@ _VIOLATION_FIELDS = {"schema", "inspection_only", "character", "lane", "incident
                      "pre_action_protection", "provenance", "retention"}
 _ACTION_FIELDS = {"type", "target_guid", "spell_id", "x", "y", "z", "map_id", "distance", "follow_distance",
                   "quest_id", "reward_index", "inviter_guid", "reason", "item_guid", "item_id", "vendor_slot",
-                  "count", "equipment_slot", "page", "buyback_slot", "menu_id", "option_id"}
+                  "count", "equipment_slot", "page", "buyback_slot", "menu_id", "option_id", "emote"}
 _PROTECTION_FIELDS = {"active", "state", "protected_target_guid", "protected_target_name", "protected_by_guid",
                       "protected_by", "policy", "mode", "reason", "target_present", "binding", "identity_status",
                       "persistence_ok", "party_beneficial_blocked", "reflection_disabled", "tame_intent",

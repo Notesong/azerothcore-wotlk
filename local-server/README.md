@@ -76,6 +76,20 @@ including when ungrouped or she is offline. At parity the following award is
 normal. Public module defaults remain disabled. Settings and behavior are in
 `Vesper Commands.md`; this feature needs no model calls or database schema change.
 
+The ordinary-emote update is prepared, not yet installed. Its native path uses
+normal named WoW emotes (including hug, point, kiss and slap), with optional
+explicit visible targets and a matching normal-handler receipt. Incoming text
+emotes carry actor and emote facts; target GUIDs require fresh hook provenance,
+not a guessed name match. Animation packets do not create duplicate social events.
+Installation and behavior checks remain separate; follow `Vesper Commands.md`
+for the verified installed status.
+
+[Vesper Player Checklist.md](Vesper%20Player%20Checklist.md) tracks the player loop
+across quests, bags, gear, supplies, travel, combat, recovery and social behavior.
+Checked items identify installed mechanical options; unfinished behavior and
+playtests remain unchecked. Vesper's model chooses among grounded actions, with
+persistent Moon protection enforced independently.
+
 `Configure-Presence-Native.py` intentionally requires a locally supplied
 `PRESENCE_PROFILE_ID` environment variable. No actual profile identifier is
 included. Set it to your intended eligible profile only after reviewing the
@@ -120,10 +134,10 @@ with the private Presence source history.
 
 ## Checks and exclusions
 
-The harness has offline unit tests under `harness/tests/`. Four standalone C++
-regression sources are archived under `modules/mod-presence-bridge/tests/`;
-their test bodies are unchanged and only their include paths are relative now.
-They are outside the module's automatically collected `src/` directory.
+The harness has offline unit tests under `harness/tests/`. Six standalone C++
+regression sources are preserved under `modules/mod-presence-bridge/tests/`,
+including the newer XP and emote policies. Each has its own executable entry
+point. They are outside the module's automatically collected `src/` directory.
 
 This is a source backup, not a character/world backup. Credentials, databases and
 SQL dumps, game/client data, compiled tools/binaries, logs, caches, runtime status,
