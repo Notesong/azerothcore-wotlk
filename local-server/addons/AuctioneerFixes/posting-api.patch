@@ -1,0 +1,5 @@
+--- a/CorePost.lua
++++ b/CorePost.lua
+@@ -701 +701 @@
+-		StartAuction(request[REQ_BID], request[REQ_BUYOUT], request[REQ_DURATION])
++		StartAuction(request[REQ_BID], request[REQ_BUYOUT], request[REQ_DURATION], request[REQ_COUNT], 1)

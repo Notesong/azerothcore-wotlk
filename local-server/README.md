@@ -78,6 +78,15 @@ relogging; that relog's timing relative to the patch is unconfirmed. A new purch
 updating the tracker without relogging remains unverified. The source backup holds
 only the patch, instructions and offline checks, not QuestHelper's addon database.
 
+The [Auctioneer posting compatibility patch](addons/AuctioneerFixes/README.md) is
+installed. It supplies the 3.3.5 API's explicit stack size and one-auction count
+while preserving per-stack prices and existing confirmation behavior. Five
+offline checks pass against the installed file. The user confirmed a successful
+wraps listing; read-only server checks found one auction for the original item,
+its random property retained and no remaining inventory row. Larger-stack posting
+remains unverified in play. The backup contains only the patch, instructions and
+checks, not Auctioneer or client FrameXML assets.
+
 The installed Qwen3.5-4B launcher uses loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.
 `Start Qwen Body.cmd` starts that model server independently of ChatGPT; starting
