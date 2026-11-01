@@ -757,7 +757,7 @@ Settings are in `server/configs/modules/presence_bridge.conf` under
 to disable it. Once this binary is installed, `.reload config` updates the cached
 settings without a server restart.
 
-## Combat attention card — installed; real-fight playtest pending
+## Combat attention card — installed; combat behavior playtest pending
 
 Installed November 1 after the approved native build and clean server restart.
 The body context links current combat facts to exact target GUIDs and matching
@@ -772,18 +772,40 @@ validation remains authoritative. The compact card covers supported unit-targete
 spells and self-heals. Self-area and other target modes remain in the full spell
 catalog and action space but are outside this compact first version.
 
-The installed package passes 2,404 offline game-player checks. A synthetic fixture
+The initial combat-card package passed 2,404 offline game-player checks. A synthetic fixture
 produced a 1,567-byte card; its combat guide was 3,609 characters versus 15,331
-for the generic guide, with all 27 body actions retained. These are representation
-checks; actual model choices and latency await a live playtest.
+for the generic guide, with all 27 body actions retained. These guide sizes describe
+that earlier version, before the follow/combat clarification below. They are
+representation checks; useful model choices and response latency still need playtesting.
 
 Live self/ally checks passed for Holy Light (635/639); Judgement (20271) rejected
 those targets with result 12. All three nearby rows reported native melee-range
-booleans. No hostile unit was present, so hostile compatibility was not tested live.
+booleans. No hostile unit was present at that deployment check.
 The actual Qwen body request retained all 29 exposed active spells and the new melee facts;
 the combat card was absent during the healthy, quiet observation, as intended.
-Triggering the card in a real fight, model behavior and latency remain playtests.
+Later November 1 requests did contain active lead combat, the exact hostile and
+matching attack/cast choices before Vesper chose follow. Combat information was
+already reaching him; this did not establish the desired interpretation or action.
 Settings, full MCP access/actions and the hard Moon/taming guards are preserved.
+
+### Follow/combat interpretation correction — installed; behavior playtest pending
+
+A small Python-only update is installed to highlight the lead's current
+life state, combat and actual outgoing actions before choosing follow. `follow`
+tracks the friendly lead; it does not join their attack. `attack` selects the
+hostile, pursues it and starts normal autoattack, so a separate move into melee
+is not required first.
+
+This keeps the decision with Vesper: assisting, another useful action, closing
+distance, following a retreat or respecting a tame can each fit the current
+situation. It adds no automatic assist, dispatch veto or forced replan. The
+update passed 2,427 offline checks and was deployed without a game-server restart;
+saved settings were preserved and the Full controller resumed.
+
+The actual Qwen body request at 20:04:54 UTC on November 1 (sequence 466) contained
+the new lead facts: Aurenne was alive, out of combat and at 202/202 health. This
+verifies that the facts reached a real model request. Corrected choices during
+a fresh fight, informed following/retreat and reliable assistance still need playtesting.
 
 ## Models and attention
 

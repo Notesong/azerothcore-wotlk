@@ -226,8 +226,18 @@ is not proof that an item exists on this corpse.
   Live Holy Light (635/639) checks accepted self/ally; Judgement (20271) rejected them. Native melee facts
   and all 29 exposed active spells reached the actual Qwen body request. No hostile was present; the card correctly
   remained absent during healthy, quiet observation.
-- [ ] Trigger the combat card in a real fight; verify hostile target applicability, useful model choices and
-  response latency. Successful self/ally checks and offline fixtures do not verify live combat behavior.
+- [x] Observe the combat card in live body requests with active lead engagement, the exact hostile and matching
+  attack/cast choices before follow decisions. This verifies input availability, not a successful cast or useful assistance.
+- [ ] Verify useful combat choices and response latency across real encounters; supplied context alone does not
+  establish reliable behavior.
+- [x] Install guidance to review current lead life/combat/outgoing-action facts before following.
+  `follow` tracks the lead without assisting; `attack` selects, chases and starts ordinary autoattack.
+  This is an interpretation/focus correction: combat context already existed before problematic follow choices.
+  Informed assistance, another useful action, following/retreating and restraint during taming remain choices.
+  The Python-only update passed 2,427 offline checks and is installed, with saved settings preserved and
+  the Full controller resumed; no game-server restart, automatic assist or dispatch veto was added.
+  Qwen's actual 20:04:54 UTC request (sequence 466) included Aurenne alive, out of combat and at 202/202 health.
+  This verifies delivery of the new facts; corrected follow/assist decisions in a fresh fight remain unverified.
 
 ## 11. Buff maintenance and situational utility — support facts installed; self/party application observed
 
