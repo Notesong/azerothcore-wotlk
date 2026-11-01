@@ -79,18 +79,22 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 ## 9. Loot, rolls and confirmations — basic looting installed; remainder incomplete
 
 - [x] Loot eligible creature corpses and ordinary chest objects under normal ownership, lock, quest, range and bag rules. Pending openings retain their original request identity; failed/unfinished pickups do not become collected-item working notes.
+- [x] Local body view binds currently observed lootable corpses/chests to exact `loot(target_guid)` candidates, preserves full corpse facts and skips the pending target; contents remain unpredicted until actual receipts.
+- [ ] Add a bounded new-loot availability wake event for untracked deaths, preserving combat, movement and pending-opening priorities. Current untracked loot can wait for the normal review deadline.
 - [ ] Add observed Need/Greed/Pass rolls and model-chosen responses, including equipment usefulness and group expectations.
 - [ ] Handle bind-on-pickup/other confirmations, unique limits, quest loot, full bags and partial/error results explicitly; avoid loops or assumptions that every item was received.
 
 ## 10. Combat and party awareness — core mechanics installed; needs playtest
 
 - [x] Observe party/lead activity, targets, health/resources, learned spells, cooldowns and nearby threats; target, attack/chase, stop and cast legal known spells.
+- [x] Configured lead-specific combat healing preference: routine topping-off at 50% or above should not delay fighting/following; below 50% healing remains a choice. Local lead health is explicit; tame/Moon protection retains priority.
 - [ ] Demonstrate timely awareness of Aurenne's actual outgoing attacks/casts, meaningful assistance, range/path recovery and sensible resource use. A selected target alone is not proof she attacked.
 - [ ] Evaluate combat choices in real fights without replacing his choices with a fixed rotation or automatic attack rule. A dedicated tank/healer role remains separate development.
 
 ## 11. Buff maintenance and situational utility — spell mechanics exist; behavior needs work
 
 - [x] Known unit-targeted casting provides the mechanical basis for eligible self/party buffs and utility.
+- [ ] Expose grounded spell effect/target roles beyond ID, name and cooldown, so a small model need not infer healing versus damage from spell names alone.
 - [ ] Expose active buffs/debuffs and useful ability facts such as targeting, range, cost and effect, so choices do not depend only on spell names or repeated guesses.
 - [ ] Maintain appropriate seals, auras and blessings outside combat using observed effects, costs and durations; avoid wasteful recasts.
 - [ ] Demonstrate interrupt, cleanse, stun and emergency healing when actually available and appropriate. Respect protection/taming restrictions and verify the spell's real outcome.

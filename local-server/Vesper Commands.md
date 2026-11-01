@@ -26,6 +26,12 @@ These are social gestures, not fixed commands that order a particular reply.
 
 ## Quest-object pickup
 
+The local body view now lists current corpse/chest loot candidates with their
+exact GUID and matching `loot` action. Candidate corpses retain full alive/lootable
+facts. This helps the model choose an available pickup; it does not promise a
+quest drop or execute loot automatically. Pending openings are excluded from
+repeat candidates. Normal bag, ownership, range and opening rules still apply.
+
 Vesper can choose `loot` for an eligible quest book or ordinary chest. A chosen
 pickup stops movement for its normal opening cast, then collects permitted loot
 and checks actual item gains. The same request remains pending until it completes
@@ -375,6 +381,13 @@ party attacks/casts, danger, Aurenne moving away, a growing distance gap and use
 action results can now wake the body planner. A selected target or being chased
 alone does not count as choosing to fight. The body planner decides how to respond; these
 signals do not force an attack, heal or follow. Moon/tame guards remain active.
+Vesper's saved Full-controller preference now puts routine healing of Aurenne
+below fighting or keeping up with her while she is at **50% health or above**.
+Below 50%, he can consider a heal; the model still chooses. Safe recovery outside
+combat is a separate choice. This preference does not set a self/other-party
+healing threshold, and low health never overrides a protected tame or Moon.
+The local view explicitly labels Aurenne's current health and maximum. Healing-only
+spells restore friendly/self health; they do not replace melee against a hostile.
 Explicit model waits have bounded review deadlines; persistent follow keeps
 executing locally. Addon protocol messages no longer count as player conversation.
 Invalid/empty model output is reported as a failed decision, with bounded retry
