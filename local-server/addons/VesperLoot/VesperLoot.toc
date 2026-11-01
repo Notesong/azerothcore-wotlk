@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: Vesper Loot Hints
+## Notes: Read-only server-confirmed quest loot hints for Vesper's party leader.
+## Author: Notesong
+## Version: 1.0.0
+## DefaultState: Enabled
+VesperLoot.lua

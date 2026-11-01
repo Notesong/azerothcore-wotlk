@@ -4,6 +4,7 @@
  */
 
 #include "AccountMgr.h"
+#include "AllCreatureScript.h"
 #include "Bag.h"
 #include "Base64.h"
 #include "CellImpl.h"
@@ -21,6 +22,7 @@
 #include "Item.h"
 #include "ItemPackets.h"
 #include "LootMgr.h"
+#include "MapMgr.h"
 #include "MotionMaster.h"
 #include "MoveSplineInit.h"
 #include "ObjectAccessor.h"
@@ -57,6 +59,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <charconv>
 #include <cmath>
 #include <ctime>
 #include <deque>
@@ -70,6 +73,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 
 namespace Presence
@@ -804,6 +808,37 @@ struct QuestAbandonCommand
     std::chrono::steady_clock::time_point received;
 };
 
+struct QuestLootQuery
+{
+    ObjectGuid requester;
+    ObjectGuid companion;
+    ObjectGuid source;
+    std::string nonce;
+    std::string sourceText;
+    std::chrono::steady_clock::time_point received;
+};
+
+using QuestLootSource = std::tuple<uint32, uint32, ObjectGuid>;
+
+struct QuestLootGeneration
+{
+    std::chrono::steady_clock::time_point observed;
+    std::map<ObjectGuid, std::set<uint32>> collected;
+};
+
+struct QuestLootHint
+{
+    uint32 item = 0;
+    uint32 remaining = 0;
+    uint32 needed = 0;
+    uint32 owned = 0;
+    uint32 required = 0;
+    bool collected = false;
+    bool uncertain = false;
+    uint32 available = 0;
+    std::string state;
+};
+
 class Bridge
 {
 public:
@@ -1242,6 +1277,8 @@ public:
     void Update()
     {
         // World::Update calls this after MapMgr::Update has joined its workers.
+        PruneQuestLootGenerations();
+        ProcessQuestLootQueries();
         for (auto const& [name, actor] : _actors)
         {
             actor->session->ProcessQueryCallbacks();
@@ -1320,6 +1357,311 @@ public:
             RemoveCreationResult(actor->session.get());
         }
         _actors.clear();
+    }
+
+    bool QueueQuestLootQuery(Player* requester, Player* companion, uint32 type, uint32 language,
+        std::string const& message)
+    {
+        std::string const prefix = "VESPERLOOT\t";
+        if (type != CHAT_MSG_WHISPER || language != LANG_ADDON || !message.starts_with(prefix))
+            return false;
+        // Consume this separate read-only protocol, including invalid requests,
+        // before it can become chat or a command for the companion's model.
+        if (!requester || !companion || requester == companion || OwnedPlayer(companion) != companion
+            || !requester->GetSession() || requester->GetSession()->IsHeadless())
+            return true;
+        Group* group = companion->GetGroup();
+        if (!group || group->isBGGroup() || requester->GetGroup() != group
+            || group->GetLeaderGUID() != requester->GetGUID())
+            return true;
+        std::string body = message.substr(prefix.size());
+        size_t split = body.find('|', 3);
+        if (!body.starts_with("Q1|") || split == std::string::npos)
+            return true;
+        std::string nonce = body.substr(3, split - 3);
+        std::string guid = body.substr(split + 1);
+        if (nonce.empty() || nonce.size() > 24
+            || nonce.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+                != std::string::npos
+            || guid.size() != 18 || !guid.starts_with("0x")
+            || guid.find_first_not_of("0123456789ABCDEF", 2) != std::string::npos)
+            return true;
+        uint64 raw = 0;
+        auto parsed = std::from_chars(guid.data() + 2, guid.data() + guid.size(), raw, 16);
+        if (parsed.ec != std::errc{} || parsed.ptr != guid.data() + guid.size() || !raw)
+            return true;
+        auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        for (auto it = _questLootThrottle.begin(); it != _questLootThrottle.end();)
+            if (now - it->second > std::chrono::seconds(60))
+                it = _questLootThrottle.erase(it);
+            else
+                ++it;
+        auto found = _questLootThrottle.find(requester->GetGUID());
+        if ((found != _questLootThrottle.end() && now - found->second < std::chrono::milliseconds(500))
+            || _questLootQueries.size() >= 32 || (found == _questLootThrottle.end() && _questLootThrottle.size() >= 32))
+            return true;
+        _questLootThrottle[requester->GetGUID()] = now;
+        _questLootQueries.push_back({requester->GetGUID(), companion->GetGUID(), ObjectGuid(raw),
+            std::move(nonce), std::move(guid), now});
+        return true;
+    }
+
+    void ObserveQuestLootGeneration(Player* credited, Creature* source)
+    {
+        Group* group = credited ? credited->GetGroup() : nullptr;
+        if (!source || !group || group->isBGGroup())
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        bool relevant = false;
+        for (auto const& [session, guid] : _ownedCharacters)
+            if (group->IsMember(guid))
+                relevant = true;
+        if (!relevant)
+            return;
+        if (_questLootGenerations.size() >= 128)
+            _questLootGenerations.erase(std::min_element(_questLootGenerations.begin(), _questLootGenerations.end(),
+                [](auto const& left, auto const& right) { return left.second.observed < right.second.observed; }));
+        _questLootGenerations[{source->GetMapId(), source->GetInstanceId(), source->GetGUID()}] = {
+            std::chrono::steady_clock::now(), {}};
+    }
+
+    void PruneQuestLootGenerations()
+    {
+        std::vector<QuestLootSource> sources;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            for (auto const& [key, generation] : _questLootGenerations)
+                sources.push_back(key);
+        }
+        // Inspect only the bounded tracked set at the world safe point. A
+        // respawn timer is not a corpse epoch: normal looting shortens it.
+        for (auto const& key : sources)
+        {
+            auto const& [mapId, instance, guid] = key;
+            Map* map = sMapMgr->FindMap(mapId, instance);
+            Creature* source = map ? map->GetCreature(guid) : nullptr;
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _questLootGenerations.find(key);
+            if (found != _questLootGenerations.end() && (!source || source->IsAlive()
+                || std::chrono::steady_clock::now() - found->second.observed >= std::chrono::minutes(10)))
+                _questLootGenerations.erase(found);
+        }
+    }
+
+    void ForgetQuestLootGeneration(Creature* source)
+    {
+        if (!source)
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        _questLootGenerations.erase({source->GetMapId(), source->GetInstanceId(), source->GetGUID()});
+    }
+
+    void ObserveQuestLootCollection(Player* player, Item* item, ObjectGuid source)
+    {
+        if (!player || !item || !source.IsCreatureOrVehicle() || OwnedPlayer(player) != player)
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto found = _questLootGenerations.find({player->GetMapId(), player->GetInstanceId(), source});
+        if (found != _questLootGenerations.end())
+            found->second.collected[player->GetGUID()].insert(item->GetEntry());
+    }
+
+    uint32 QuestLootRequirement(Player* player, uint32 itemId)
+    {
+        uint32 required = 0;
+        for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+        {
+            uint32 questId = player->GetQuestSlotQuestId(slot);
+            Quest const* quest = questId ? sObjectMgr->GetQuestTemplate(questId) : nullptr;
+            QuestStatus status = player->GetQuestStatus(questId);
+            if (!quest || (status != QUEST_STATUS_INCOMPLETE && status != QUEST_STATUS_COMPLETE))
+                continue;
+            for (uint8 index = 0; index < QUEST_ITEM_OBJECTIVES_COUNT; ++index)
+                if (quest->RequiredItemId[index] == itemId)
+                    required = std::max(required, quest->RequiredItemCount[index]);
+            for (uint8 index = 0; index < QUEST_SOURCE_ITEM_IDS_COUNT; ++index)
+                if (quest->ItemDrop[index] == itemId)
+                    if (ItemTemplate const* item = sObjectMgr->GetItemTemplate(itemId))
+                        required = std::max(required, item->MaxCount > 0 ? uint32(item->MaxCount)
+                            : quest->ItemDropQuantity[index] ? quest->ItemDropQuantity[index]
+                            : item->GetMaxStackSize());
+        }
+        return required;
+    }
+
+    void SendQuestLootHints(Player* requester, Player* companion, QuestLootQuery const& query,
+        std::string state, std::vector<QuestLootHint> const& rows)
+    {
+        auto send = [requester, companion](std::string const& body)
+        {
+            std::string message = "VESPERLOOT\t" + body;
+            if (message.size() > 255)
+                return;
+            WorldPacket packet;
+            // Mirror Player::Whisper: both packet GUID fields identify the
+            // whispering player; delivery chooses the actual recipient.
+            ChatHandler::BuildChatPacket(packet, CHAT_MSG_WHISPER, LANG_ADDON, companion, companion, message);
+            requester->SendDirectMessage(&packet);
+        };
+        std::string identity = query.nonce + "|" + query.sourceText + "|";
+        size_t count = std::min<size_t>(8, rows.size());
+        if (rows.size() > count)
+            state = "partial";
+        std::string header = identity + state + "|" + std::to_string(count);
+        send("R1|" + header);
+        for (size_t index = 0; index < count; ++index)
+        {
+            auto const& row = rows[index];
+            send("I1|" + identity + std::to_string(row.item) + "|" + std::to_string(row.remaining) + "|"
+                + std::to_string(row.needed) + "|" + std::to_string(row.owned) + "|"
+                + std::to_string(row.required) + "|" + row.state);
+        }
+        send("E1|" + header);
+    }
+
+    void ProcessQuestLootQueries()
+    {
+        std::deque<QuestLootQuery> queries;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            queries.swap(_questLootQueries);
+        }
+        for (auto const& query : queries)
+        {
+            Player* requester = ObjectAccessor::FindPlayer(query.requester);
+            Player* companion = ObjectAccessor::FindPlayer(query.companion);
+            Group* group = companion ? companion->GetGroup() : nullptr;
+            if (!requester || !companion || OwnedPlayer(companion) != companion || !requester->IsInWorld()
+                || !companion->IsInWorld() || !group || group->isBGGroup() || requester->GetGroup() != group
+                || group->GetLeaderGUID() != requester->GetGUID()
+                || std::chrono::steady_clock::now() - query.received > std::chrono::seconds(3))
+                continue;
+            Creature* source = companion->GetMap()->GetCreature(query.source);
+            if (!source || source->IsAlive() || requester->GetMap() != companion->GetMap()
+                || !requester->HaveAtClient(source) || !companion->HaveAtClient(source)
+                || !requester->CanSeeOrDetect(source) || !companion->CanSeeOrDetect(source)
+                || !requester->IsWithinDistInMap(source, 60) || !companion->IsWithinDistInMap(source, 60))
+            {
+                SendQuestLootHints(requester, companion, query, "unavailable", {});
+                continue;
+            }
+            bool generated = false;
+            std::set<uint32> collected;
+            {
+                std::lock_guard<std::mutex> lock(_eventMutex);
+                auto key = QuestLootSource{source->GetMapId(), source->GetInstanceId(), source->GetGUID()};
+                auto found = _questLootGenerations.find(key);
+                generated = found != _questLootGenerations.end()
+                    && std::chrono::steady_clock::now() - found->second.observed < std::chrono::minutes(10);
+                if (generated)
+                    if (auto recorded = found->second.collected.find(companion->GetGUID());
+                        recorded != found->second.collected.end())
+                        collected = recorded->second;
+            }
+            if (!generated || source->loot.loot_type == LOOT_SKINNING)
+            {
+                SendQuestLootHints(requester, companion, query, "unknown", {});
+                continue;
+            }
+            if (source->GetLootRecipientGroup() != group || !source->IsDamageEnoughForLootingAndReward()
+                || source->IsLootRewardDisabled() || companion->HasPendingBind())
+            {
+                SendQuestLootHints(requester, companion, query, "unavailable", {});
+                continue;
+            }
+            ::Loot const& loot = source->loot;
+            std::map<uint32, QuestLootHint> hints;
+            bool partial = false;
+            auto inspect = [&](LootItem const& item, bool questItem, uint32 index)
+            {
+                uint32 required = QuestLootRequirement(companion, item.itemid);
+                if (!item.needs_quest && !required)
+                    return;
+                auto& hint = hints[item.itemid];
+                hint.item = item.itemid;
+                hint.required = required;
+                hint.owned = companion->GetItemCount(item.itemid, true);
+                bool show = true;
+                bool needed = companion->HasQuestForItem(item.itemid, 0, false, &show);
+                hint.needed = needed && required > hint.owned ? required - hint.owned : 0;
+                if (needed && !hint.needed)
+                    hint.uncertain = true;
+                bool personal = questItem || item.freeforall || !item.conditions.empty();
+                bool registered = !personal;
+                bool consumed = false;
+                if (personal)
+                {
+                    auto const& records = questItem ? loot.GetPlayerQuestItems()
+                        : item.freeforall ? loot.GetPlayerFFAItems() : loot.GetPlayerNonQuestNonFFAConditionalItems();
+                    auto found = records.find(companion->GetGUID());
+                    if (found != records.end() && found->second)
+                        for (auto const& record : *found->second)
+                            if (record.index == index)
+                            {
+                                registered = true;
+                                consumed = record.is_looted;
+                                break;
+                            }
+                }
+                hint.collected = collected.contains(item.itemid);
+                if (!registered)
+                    hint.uncertain = true;
+                if (!consumed && !item.is_looted)
+                {
+                    if (uint64(hint.remaining) + item.count > UINT32_MAX)
+                        hint.uncertain = true;
+                    else
+                        hint.remaining += item.count;
+                    bool blocked = (!questItem && item.is_blocked)
+                        || (item.rollWinnerGUID && item.rollWinnerGUID != companion->GetGUID());
+                    LootMethod method = group->GetLootMethod();
+                    bool restricted = item.follow_loot_rules && (item.is_blocked || method == MASTER_LOOT);
+                    if ((item.follow_loot_rules || !personal) && !item.is_underthreshold
+                        && (method == GROUP_LOOT || method == NEED_BEFORE_GREED) && !item.rollWinnerGUID)
+                        restricted = true;
+                    if (!personal && loot.roundRobinPlayer && loot.roundRobinPlayer != companion->GetGUID()
+                        && method != FREE_FOR_ALL)
+                        restricted = true;
+                    if (!questItem && !item.is_underthreshold && method == MASTER_LOOT
+                        && group->GetMasterLooterGuid() != companion->GetGUID() && !personal)
+                        restricted = true;
+                    if (registered && needed && hint.needed && !blocked && !restricted
+                        && companion->IsAlive() && !companion->HasPlayerFlag(PLAYER_FLAGS_NO_PLAY_TIME)
+                        && companion->isAllowedToLoot(source) && item.AllowedForPlayer(companion, source->GetGUID()))
+                    {
+                        if (uint64(hint.available) + item.count > UINT32_MAX)
+                            hint.uncertain = true;
+                        else
+                            hint.available += item.count;
+                    }
+                }
+            };
+            for (uint32 index = 0; index < loot.quest_items.size(); ++index)
+                inspect(loot.quest_items[index], true, index);
+            for (uint32 index = 0; index < loot.items.size(); ++index)
+                inspect(loot.items[index], false, index);
+            std::vector<QuestLootHint> rows;
+            for (auto& [item, hint] : hints)
+            {
+                if (hint.available)
+                {
+                    hint.state = "available";
+                    hint.remaining = hint.available;
+                }
+                else if (hint.collected && !hint.remaining)
+                    hint.state = "collected";
+                else if (!hint.needed && !hint.uncertain)
+                    hint.state = "not_needed";
+                else if (hint.uncertain)
+                    hint.state = "unknown";
+                else
+                    hint.state = "unavailable";
+                partial = partial || hint.uncertain;
+                rows.push_back(std::move(hint));
+            }
+            SendQuestLootHints(requester, companion, query, partial ? "partial" : "checked", rows);
+        }
     }
 
     Creature* SpiritHealerNpc(Player* player, ObjectGuid guid)
@@ -5822,6 +6164,9 @@ private:
     std::map<WorldSession*, CommerceMenu> _trainerMenus;
     std::map<WorldSession*, QuestFrame> _questMenus;
     std::map<WorldSession*, QuestFrame> _questDialogs;
+    std::deque<QuestLootQuery> _questLootQueries;
+    std::map<ObjectGuid, std::chrono::steady_clock::time_point> _questLootThrottle;
+    std::map<QuestLootSource, QuestLootGeneration> _questLootGenerations;
     std::map<WorldSession*, SpiritHealerFrame> _spiritHealerMenus;
     std::map<WorldSession*, SpiritHealerFrame> _spiritHealerConfirmations;
     std::map<WorldSession*, Json::object> _spiritRecoveryReceipts;
@@ -5934,6 +6279,38 @@ public:
         Bridge::Instance().ClearSpiritRecovery(player);
     }
     void OnPlayerLogout(Player* player) override { Bridge::Instance().ClearSpiritRecovery(player); }
+};
+
+class QuestLootHints : public PlayerScript
+{
+public:
+    QuestLootHints() : PlayerScript("presence_bridge_quest_loot_hints", {
+        PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_CREATURE_KILL_CREDIT, PLAYERHOOK_ON_LOOT_ITEM}) { }
+
+    bool OnPlayerCanUseChat(Player* sender, uint32 type, uint32 language, std::string& message,
+        Player* receiver) override
+    {
+        return !Bridge::Instance().QueueQuestLootQuery(sender, receiver, type, language, message);
+    }
+
+    void OnPlayerCreatureKillCredit(Player* player, Creature* creature) override
+    {
+        Bridge::Instance().ObserveQuestLootGeneration(player, creature);
+    }
+
+    void OnPlayerLootItem(Player* player, Item* item, uint32 /*count*/, ObjectGuid source) override
+    {
+        Bridge::Instance().ObserveQuestLootCollection(player, item, source);
+    }
+};
+
+class QuestLootSources : public AllCreatureScript
+{
+public:
+    QuestLootSources() : AllCreatureScript("presence_bridge_quest_loot_sources") { }
+
+    void OnCreatureAddWorld(Creature* creature) override { Bridge::Instance().ForgetQuestLootGeneration(creature); }
+    void OnCreatureRemoveWorld(Creature* creature) override { Bridge::Instance().ForgetQuestLootGeneration(creature); }
 };
 
 class TextEmotes : public PlayerScript
@@ -6082,6 +6459,8 @@ void Addmod_presence_bridgeScripts()
     new Presence::TextEmotes();
     new Presence::QuestReceipts();
     new Presence::RecoveryLifecycle();
+    new Presence::QuestLootHints();
+    new Presence::QuestLootSources();
     new Presence::ProtectionUnits();
     new Presence::ProtectionSpells();
     AddPresenceCatchupXpScripts();

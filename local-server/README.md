@@ -12,6 +12,7 @@ repository at `modules/mod-presence-bridge/`.
 | `local-server/harness/` | `C:/Games/AzerothCore/harness/` |
 | `local-server/scripts/` | `C:/Games/AzerothCore/scripts/` |
 | `local-server/addons/Mangosbot/` | Source package; runtime `Mangosbot.lua` and `.toc` go in the WoW client's `Interface/AddOns/Mangosbot/` |
+| `local-server/addons/VesperLoot/` | Separate read-only hints; its three package files go in `Interface/AddOns/VesperLoot/`. |
 | `local-server/*.cmd`, user notes, installation metadata | `C:/Games/AzerothCore/` |
 | `local-server/config-examples/` | Manual examples; never copied directly over live settings |
 
@@ -49,11 +50,15 @@ controller or providers or changing global import paths. Live previews show the
 current projection; recorded requests and Moon incidents retain original inputs.
 See `Vesper Commands.md` for inspection and equipment guidance notes.
 
-The October 31 local-body update adds a dedicated Qwen3.5-4B launcher on loopback
+Both controller lanes now use GPT-6 Luna (`gpt-6-luna`), with reasoning set to
+`none`, as requested November 1. Dated Qwen decisions and test results in these
+guides remain historical evidence.
+
+The October 31 local-body update adds an optional Qwen3.5-4B launcher on loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.
 `Start Qwen Body.cmd` starts that model server independently of ChatGPT; starting
-Presence's controller remains a separate choice. It leaves other helper endpoints
-and the social model unchanged. Model files, runtime logs and ownership state
+Presence's controller remains a separate choice. Starting the launcher does not
+switch either lane's selected model. Model files, runtime logs and ownership state
 under `local-qwen-private/` are excluded from this source backup.
 The private Presence changes add party/distance attention, explicit invalid-output
 reporting, addon-message filtering and a compact local body view/schema. MCP live
@@ -137,6 +142,17 @@ its controls. See `addons/Mangosbot/README.md` for usage and source assembly.
 custom alts, recruitment, role setup and upkeep. `Vesper Commands.md` covers Vesper separately.
 Its offline Lua 5.1 tests are in `addons/tests/`; Python `lupa` supplies the test
 runtime and is not a game dependency. Legacy client assets are not vendored here.
+
+VesperLoot is a separate read-only tooltip and inspected-corpse panel for Vesper's
+current online party leader. It reports confirmed generated per-player quest loot,
+current progress and explicit unknown states without changing the human's pickup
+eligibility, adding native loot slots, issuing companion commands or calling a
+model. Its source and Lua 5.1 tests are included here. The server update and client
+package, including the font-wrapping compatibility correction, are installed.
+The native build and server restart passed. The 46 offline checks pass, including
+the absent optional font API; actual client display and server replies remain unverified.
+Fully exit and restart WoW after adding its new folder so the addon list is scanned.
+Usage and pending checks are in the Vesper guides and `addons/VesperLoot/README.md`.
 
 ## Historical migration helpers
 

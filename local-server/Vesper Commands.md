@@ -110,6 +110,44 @@ This verifies model-visible choices, not executed movement or route safety.
 Continued Bonfire avoidance and reliable follow recovery remain playtests.
 Native hazard-script metadata and safe interaction zones are still unavailable.
 
+## Vesper's quest-loot hints
+
+The separate **VesperLoot** addon adds read-only corpse tooltip hints and a small
+non-clickable panel. The server update and client package are installed, and the
+server build and restart are complete. The font-wrapping compatibility correction
+is installed; all 46 offline Lua 5.1 checks pass, including the absent optional API.
+Actual client display and replies have not yet been live-verified.
+
+After the addon folder is installed, **fully exit and restart WoW**, then enable
+**Vesper Loot Hints** in the character-selection AddOns list. A newly added folder
+needs the client's addon-list scan; `/reload` alone is not sufficient to discover it.
+The client package is `Interface/AddOns/VesperLoot/`; it is separate from MaNGOSBot.
+
+Be Vesper's current party leader, with Vesper online in the same party. Hover or
+target a visible creature corpse. The panel labels the **inspected corpse** and
+appears beside an open LootFrame, or independently if your own loot window is
+empty. Its rows are hints, not extra native loot slots or pickup buttons.
+Aurenne's quest quota and normal pickup eligibility remain unchanged.
+
+| Hint | Meaning |
+| --- | --- |
+| `available for Vesper` | Remaining eligible loot matches his current need; normal bag/range rules apply. |
+| `not currently needed` | His held objectives do not need it; this does not establish a pickup. |
+| `already collected from this corpse` | The server recorded Vesper's actual pickup from this corpse. |
+| `not available for Vesper` | The current per-player loot facts do not permit that item for him. |
+| `unknown` / `not checked` | Facts are missing, pending, incomplete or expired; absence is not established. |
+
+Item names use the client's item cache; an uncached item displays its item ID.
+Progress belongs to Vesper. A partial reply leaves other items unknown. Replies
+must match the sender, nonce and exact corpse GUID before any rows appear. Hints
+expire after five seconds and refresh only while the corpse is still inspected;
+offline Vesper shows unknown without sending whispers. No model call is made.
+
+The bridge reads actual generated loot and per-player state, not potential drops
+from a template. If generation or personal loot state cannot be confirmed, the
+answer remains unknown. A fresh normal kill and a completed pickup receipt are
+part of the pending live validation.
+
 ## Custom in-game commands
 
 Type these in WoW chat. Both work while Vesper's model controller is paused and
@@ -676,18 +714,21 @@ Settings are in `server/configs/modules/presence_bridge.conf` under
 to disable it. Once this binary is installed, `.reload config` updates the cached
 settings without a server restart.
 
-## Local Qwen body and attention
+## Models and attention
 
-Installed October 31, 2026. The body uses **Qwen3.5-4B Q4_K_XL**, alias
-`qwen3.5-4b-action`, at `http://127.0.0.1:8082/v1`, with thinking disabled.
-This dedicated endpoint leaves the main/helper model endpoints available for
-other helpers. The social provider/model is unchanged and still uses no reasoning.
-Separate ports allow separate model servers; they still share the computer's GPU and memory.
+Both body and social lanes now use **GPT-6 Luna** (`gpt-6-luna`), with reasoning
+set to `none`, as requested on November 1. The dated Qwen decisions and tests in
+this guide remain historical evidence from the model used at that time.
+
+The optional local **Qwen3.5-4B Q4_K_XL** launcher installed October 31 remains
+available, with alias `qwen3.5-4b-action` at `http://127.0.0.1:8082/v1` and thinking
+disabled. Starting that server does not switch either controller lane's model.
+Separate local model servers share the computer's GPU and memory.
 
 1. Start the game server normally.
 2. Run [Start Qwen Body.cmd](C:/Games/AzerothCore/Start%20Qwen%20Body.cmd) if Qwen is offline.
 3. In Presence's AzerothCore panel, click **Start AzerothCore** when ready to play.
-   The controller was left stopped after installation; starting Qwen alone makes no game decisions.
+   Starting Qwen alone makes no game decisions or changes to the selected models.
 
 [Stop Qwen Body.cmd](C:/Games/AzerothCore/Stop%20Qwen%20Body.cmd) stops only this owned
 Qwen process. Stop/pause the controller first. Qwen runs independently of ChatGPT;

@@ -9,6 +9,9 @@ Presence-controlled Blood Elf Paladin.
 
 For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For ordinary Playerbots, custom alts, dungeon companions and the addon, see [Bot Guide.md](Bot%20Guide.md). Their commands and automation do not automatically apply to Vesper.
 
+Both body and social lanes now use **GPT-6 Luna** (`gpt-6-luna`), with reasoning
+set to `none`. The dated Qwen receipts and replays below remain historical evidence.
+
 ## Foundations already available
 
 - [x] Structured character, surroundings, party, spell, inventory and quest observations; native actions use observed identities and normal game checks.
@@ -132,6 +135,24 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Expose talent points, trees and prerequisites; add intentional talent spending and verification. Ordinary bots' talent presets are not Vesper's talent controls.
 
 ## 9. Loot, rolls and confirmations — basic looting installed; remainder incomplete
+
+**VesperLoot read-only hints:** the server update and client package are installed,
+and the native build and server restart are complete. The font-wrapping compatibility
+correction is installed and passes with that API absent; 46 offline Lua 5.1 checks
+pass in total. Actual client display and server replies have not yet been live-verified.
+
+- [ ] Fully restart the client after installing the new VesperLoot folder, enable
+  Vesper Loot Hints, and verify a visible corpse's tooltip and inspected-corpse panel.
+- [ ] Verify the current party leader receives Vesper's current item need and
+  availability while Aurenne's own completed quota and pickup eligibility remain unchanged.
+- [ ] Verify actual generated per-player loot distinguishes available, not currently
+  needed, collected from this corpse, unavailable, partial and unknown states.
+- [ ] Verify a real Vesper pickup changes the hint and his inventory/objective count;
+  incomplete replies, target changes, group loss and expiry must not retain stale availability.
+
+These hints add no native loot slots or pickup actions and make no model calls.
+Missing generation/per-player facts remain unknown; a loot-template possibility
+is not proof that an item exists on this corpse.
 
 - [x] Loot eligible creature corpses and ordinary chest objects under normal ownership, lock, quest, range and bag rules. Pending openings retain their original request identity; failed/unfinished pickups do not become collected-item working notes.
 - [x] Local body view binds currently observed lootable corpses/chests to exact `loot(target_guid)` candidates, preserves full corpse facts and skips the pending target; contents remain unpredicted until actual receipts.
