@@ -549,10 +549,14 @@ class McpControlManager:
                     'operation_id': operation_id, 'request_id': operation_id, 'status': 'unknown',
                     'outcome_uncertain': True})
             record.update(phase='dispatching', generation=state['generation'])
+            speech = {'v': 1, 'origin': 'mcp', 'provider': None, 'model': None} if wire['type'] == 'say' else None
+            if speech is not None:
+                record['speech_provenance'] = speech
             self._save(record)  # Persist before sending. A crash can never authorize a resend.
             try:
                 result = self.client.execute(CHARACTER, wire, request_id=operation_id,
-                    observed_sequence=observed_sequence)
+                    observed_sequence=observed_sequence,
+                    **({'speech_provenance': speech} if speech is not None else {}))
                 if not isinstance(result, dict):
                     raise ControlError('invalid_response')
                 response = {'available': True, 'character': CHARACTER, 'operation_id': operation_id,

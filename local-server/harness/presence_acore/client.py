@@ -5,10 +5,28 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import time
 from typing import Any
 import uuid
+
+
+def _speech_provenance(value: Any) -> dict[str, Any]:
+    """Runtime-only metadata; malformed values cannot claim a known voice."""
+    unknown = {'v': 1, 'origin': 'unknown', 'provider': None, 'model': None}
+    if (not isinstance(value, dict) or set(value) != {'v', 'origin', 'provider', 'model'}
+            or type(value.get('v')) is not int or value['v'] != 1
+            or value.get('origin') not in ('body', 'social', 'mcp')):
+        return unknown
+    for key, limit in (('provider', 24), ('model', 96)):
+        item = value[key]
+        if item is not None and (not isinstance(item, str) or not 1 <= len(item) <= limit
+                or item == '-' or not re.fullmatch(r'[A-Za-z0-9._:/-]+', item)):
+            return unknown
+    if value['origin'] == 'mcp' and (value['provider'] is not None or value['model'] is not None):
+        return unknown
+    return dict(value)
 
 
 def _guard_interventions(value: Any, request_id: str) -> list[dict[str, Any]]:
@@ -186,11 +204,13 @@ class Client:
 
     def execute(
         self, character: str, action: dict[str, Any], request_id: str | None = None,
-        observed_sequence: int | None = None,
+        observed_sequence: int | None = None, *, speech_provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         arguments: dict[str, Any] = {"action": dict(action)}
         if observed_sequence is not None:
             arguments["observed_sequence"] = int(observed_sequence)
+        if action.get('type') == 'say' and speech_provenance is not None:
+            arguments['speech_provenance'] = _speech_provenance(speech_provenance)
         return self.request("action", character, request_id=request_id, **arguments)
 
     def capabilities(self, character: str = "") -> dict[str, Any]:

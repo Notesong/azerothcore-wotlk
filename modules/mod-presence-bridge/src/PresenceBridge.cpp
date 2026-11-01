@@ -860,6 +860,112 @@ private:
     GuardActionContext* _previous;
 };
 
+std::optional<Json::object> SpeechProvenance(Json::object const& request)
+{
+    auto raw = request.if_contains("speech_provenance");
+    if (!raw || !raw->is_object())
+        return std::nullopt;
+    auto const& fields = raw->as_object();
+    auto version = fields.if_contains("v");
+    auto origin = fields.if_contains("origin");
+    if (fields.size() != 4 || !version || !origin || !origin->is_string()
+        || !((version->is_int64() && version->as_int64() == 1)
+            || (version->is_uint64() && version->as_uint64() == 1)))
+        return std::nullopt;
+    std::string lane(origin->as_string());
+    if (lane != "body" && lane != "social" && lane != "mcp")
+        return std::nullopt;
+    auto identifier = [](Json::value const* value, size_t limit)
+    {
+        if (!value)
+            return false;
+        if (value->is_null())
+            return true;
+        if (!value->is_string())
+            return false;
+        auto const& text = value->as_string();
+        return !text.empty() && text.size() <= limit && text != "-"
+            && std::all_of(text.begin(), text.end(), [](char character)
+            {
+                return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+                    || (character >= '0' && character <= '9') || character == '.' || character == '_'
+                    || character == ':' || character == '/' || character == '-';
+            });
+    };
+    auto provider = fields.if_contains("provider");
+    auto model = fields.if_contains("model");
+    if (!identifier(provider, 24) || !identifier(model, 96)
+        || (lane == "mcp" && (!provider->is_null() || !model->is_null())))
+        return std::nullopt;
+    return fields;
+}
+
+uint32 SpeechChecksum(std::string const& text)
+{
+    // Adler-32 over the actual packet's UTF-8 bytes; Lua can reproduce it exactly.
+    uint32 a = 1;
+    uint32 b = 0;
+    for (uint8 byte : text)
+    {
+        a = (a + byte) % 65521;
+        b = (b + a) % 65521;
+    }
+    return (b << 16) | a;
+}
+
+std::string SpeechHex(uint64 value, uint32 width)
+{
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0') << std::setw(width) << value;
+    return stream.str();
+}
+
+struct SpeechContext
+{
+    ObjectGuid sender;
+    uint32 chatType = 0;
+    std::optional<Json::object> provenance;
+    std::string nonce;
+    uint32 sequence = 0;
+    std::optional<std::string> actualText;
+    uint32 actualChatType = 0;
+    std::set<ObjectGuid> recipients;
+    uint32 announced = 0;
+    bool announcing = false;
+};
+
+thread_local SpeechContext* CurrentSpeech = nullptr;
+
+class SpeechScope
+{
+public:
+    explicit SpeechScope(SpeechContext& context) : _previous(CurrentSpeech) { CurrentSpeech = &context; }
+    ~SpeechScope() { CurrentSpeech = _previous; }
+
+private:
+    SpeechContext* _previous;
+};
+
+Json::object SpeechReceipt(SpeechContext const& speech)
+{
+    Json::object result{{"origin", "unknown"}, {"provider", nullptr}, {"model", nullptr},
+        {"status", "unknown"}, {"announcement_count", speech.announced}};
+    if (!speech.provenance)
+        return result;
+    result = *speech.provenance;
+    result["status"] = speech.announced ? "announced" : "not_announced";
+    result["announcement_count"] = speech.announced;
+    result["nonce"] = speech.nonce;
+    result["sequence"] = speech.sequence;
+    if (speech.actualText)
+    {
+        result["text_bytes"] = speech.actualText->size();
+        result["text_checksum"] = SpeechHex(SpeechChecksum(*speech.actualText), 8);
+        result["chat_type"] = speech.actualChatType;
+    }
+    return result;
+}
+
 struct GuardTelemetry
 {
     GuardTelemetryWindow window;
@@ -2491,8 +2597,71 @@ public:
             _emoteCorrelations.Remember(record, now);
     }
 
+    void AnnounceSpeechPacket(WorldSession* session, WorldPacket const& packet) noexcept
+    {
+        SpeechContext* speech = CurrentSpeech;
+        if (!speech || !speech->provenance || speech->announcing
+            || (packet.GetOpcode() != SMSG_MESSAGECHAT && packet.GetOpcode() != SMSG_GM_MESSAGECHAT))
+            return;
+        try
+        {
+            Json::object event = ChatEvent(packet);
+            uint32 chatType = Unsigned(event, "chat_type", MAX_CHAT_MSG_TYPE);
+            bool channelMatches = chatType == speech->chatType
+                || (speech->chatType == CHAT_MSG_PARTY && chatType == CHAT_MSG_PARTY_LEADER);
+            if (!channelMatches
+                || Number(event, "language", -1) < 0
+                || Text(event, "sender_guid") != std::to_string(speech->sender.GetRawValue()))
+                return;
+            std::string text = Text(event, "text");
+            if (text.empty() || text.size() > 255 || event.contains("decode_error"))
+                return;
+            speech->actualText = text;
+            speech->actualChatType = chatType;
+            Player* recipient = session ? session->GetPlayer() : nullptr;
+            if (!recipient || session->IsHeadless() || session->GetRemoteAddress().empty()
+                || speech->recipients.size() >= 64 || speech->recipients.contains(recipient->GetGUID()))
+                return;
+            {
+                std::lock_guard<std::mutex> lock(_eventMutex);
+                if (_ownedSessions.contains(session))
+                    return;
+            }
+            Player* sender = ObjectAccessor::FindPlayer(speech->sender);
+            if (!sender)
+                return;
+            auto const& metadata = *speech->provenance;
+            auto field = [&metadata](char const* key)
+            {
+                auto const& value = metadata.at(key);
+                return value.is_string() ? std::string(value.as_string()) : "-";
+            };
+            std::string message = "VESPERVOICE\tV1|" + speech->nonce + "|" + std::to_string(speech->sequence)
+                + "|5000|" + SpeechHex(speech->sender.GetRawValue(), 16) + "|" + std::to_string(chatType)
+                + "|" + std::to_string(text.size()) + "|" + SpeechHex(SpeechChecksum(text), 8)
+                + "|" + field("origin") + "|" + field("provider") + "|" + field("model");
+            if (message.size() > 255)
+                return;
+            speech->recipients.insert(recipient->GetGUID());
+            WorldPacket announcement;
+            ChatHandler::BuildChatPacket(announcement, CHAT_MSG_WHISPER, LANG_ADDON, sender, sender, message);
+            // This hook runs before the normal packet enqueues. No event mutex
+            // is held, and recursive addon packets cannot announce themselves.
+            speech->announcing = true;
+            session->SendPacket(&announcement);
+            speech->announcing = false;
+            ++speech->announced;
+        }
+        catch (...)
+        {
+            // A failed diagnostic cannot change the ordinary chat packet/result.
+            speech->announcing = false;
+        }
+    }
+
     void Packet(WorldSession* session, WorldPacket const& packet)
     {
+        AnnounceSpeechPacket(session, packet);
         {
             std::lock_guard<std::mutex> lock(_eventMutex);
             if (!_ownedSessions.contains(session))
@@ -5471,6 +5640,18 @@ private:
                 if (channel != "say" && channel != "party")
                     return Error(request, "invalid_channel", "Chat channel must be say or party");
                 Language language = player->GetTeamId() == TEAM_ALLIANCE ? LANG_COMMON : LANG_ORCISH;
+                SpeechContext speech;
+                speech.sender = player->GetGUID();
+                speech.chatType = channel == "party" ? CHAT_MSG_PARTY : CHAT_MSG_SAY;
+                speech.provenance = SpeechProvenance(request);
+                if (speech.provenance)
+                {
+                    if (!++_speechSequence)
+                        ++_speechSequence;
+                    speech.sequence = _speechSequence;
+                    speech.nonce = SpeechHex((uint64(urand(0, 0xFFFFFFFF)) << 32) | urand(0, 0xFFFFFFFF), 16);
+                }
+                SpeechScope speechScope(speech);
                 if (channel == "party")
                 {
                     Group* group = player->GetOriginalGroup();
@@ -5506,7 +5687,8 @@ private:
                 }
                 else
                     player->Say(text, language);
-                return Response(request, true, {{"status", "completed"}, {"request_id", id}, {"channel", channel}});
+                return Response(request, true, {{"status", "completed"}, {"request_id", id}, {"channel", channel},
+                    {"speech_provenance", SpeechReceipt(speech)}});
             }
             player->TextEmote(text);
             return Response(request, true, {{"status", "completed"}, {"request_id", id}});
@@ -6325,6 +6507,7 @@ private:
     uint64 _commerceSequence = 0;
     uint64 _questFrameSequence = 0;
     uint64 _tradeSequence = (uint64(urand(1, 0x7FFFFFFF)) << 32) | urand(0, 0xFFFFFFFF);
+    uint32 _speechSequence = 0;
 };
 
 class Commands : public CommandScript
