@@ -56,6 +56,7 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 
 - [x] Inspect backpack/bag occupancy, free general-purpose space, specialty restrictions and empty bag equipment slots.
 - [x] Equip a carried eligible bag using `equip_item`, including a chosen bag slot; inspect and compare capacity before replacing a smaller bag.
+- [x] Verified Vesper chose and equipped the Sunstrider Book Satchel in a free bag slot during safe downtime.
 - [ ] Demonstrate equipping the Satchel, upgrading a smaller bag and making useful space before buying, looting or claiming a reward.
 
 Also: we should absolutely teach me to equip the damned bag before I become the first paladin in Azeroth defeated by inventory management. XD <3
@@ -64,6 +65,7 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 - [x] Inspect carried/equipped items, eligibility, exposed stats and weapon information; equip or unequip through normal handlers.
 - [x] Paladin leveling guidance considers useful weapon upgrades, Strength, survival and mana rather than rarity alone. Unresolved modifiers remain unknown.
+- [x] Local context links carried eligible items to exact observed destination slots and current equipment, without automatic rarity scoring. Verified autonomous equipping of the Green Chain Gauntlets, Vest and Boots, Sunspire Cord, and Shoddy Chain Bracers.
 - [ ] Demonstrate sensible weapon, armor, shield/two-hand and quest-reward choices for his agreed role; verify the equipment result. Do not claim an unobserved specialization or computed stat total.
 
 ## 7. Vendors, repairs and buyback — mechanics installed; needs playtest
@@ -104,6 +106,7 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 ## 12. Travel, hearth, taxis, inn binding and mounts — partial/not built
 
 - [x] Short-range same-map pathfinding and persistent following provide local travel mechanics.
+- [x] Failed moves retain exact destinations, source sequence and bounded recent failure counts for 60 seconds. Planner guidance distinguishes a rejected path from movement and repeated current-position moves from useful travel; ordinary navigation checks remain in force.
 - [ ] Add deliberate hearthstone use, known taxi routes/selection and intentional inn binding, with observed availability, costs and resulting destination.
 - [ ] Add reliable mount/dismount state and controls, travel/combat transitions and destination verification. Existing spell casting is not a complete travel subsystem.
 
@@ -131,10 +134,12 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Build the full recovery ladder: reacquire → choose a grounded route → use appropriate transport/hearth if available → report the actual blocker when stuck.
 - [ ] Preserve the intended reunion/goal across visibility loss and map changes without repeated failed actions or invented locations.
 
-## 17. Intentional player trading — not built
+## 17. Intentional player trading — receiving gifts installed; needs playtest
 
-- [ ] Expose real trade participants, offered items/bags, money, confirmation and final receipt.
-- [ ] Add deliberate offer/accept/cancel controls and verify ownership after completion; distinguish a request from an agreed exchange.
+- [x] Expose real trade participants, offered items/bags, money, acceptance, capacity and final before/after transfer receipts.
+- [x] Add model-chosen begin/accept/unaccept/cancel for receiving gifts, bound to the current partner, trade generation and offer revision. Changed offers revoke consent; outgoing items/money and trade-slot services remain unavailable in this first version.
+- [ ] Verify a real item/money gift after both players accept, including changed offers, full bags, cancellation and disconnection. Consent is distinct from completed transfer.
+- [ ] Add deliberate outgoing item/money offers and service-slot interactions with grounded choices and normal validation.
 
 ## 18. Bank and mail — not built
 
@@ -144,6 +149,7 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 ## 19. Conversation and real emotes — mechanics installed; needs playtest
 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
+- [x] Brief native interaction gestures accompany verified NPC/menu/quest progress and corpse-loot opening, without extra chat or persistent poses. Normal chest opening keeps its existing spell animation.
 - [x] Send ordinary named/targeted WoW emotes through the real emote channel, including hug, point, kiss and slap. Named gestures and custom prose are distinct; completion requires an actual normal-handler delivery receipt.
 - [x] Expose actor + emote + authoritative explicit target facts. Directed incoming player gestures can reach the social inbox once per event; unknown/untargeted gestures do not force a direct wake. Target identity is never guessed from a name.
 - [x] Observed in play: Aurenne directed comfort at Vesper and he chose a targeted nod in response.

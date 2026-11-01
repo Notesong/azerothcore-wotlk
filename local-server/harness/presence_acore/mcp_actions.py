@@ -37,6 +37,8 @@ for _name in ALIASES:
     _spec(_name, _required)
 for _name in ('party_accept', 'party_decline'):
     _spec(_name, {'inviter_guid': _GUID})
+for _name in ('trade_begin', 'trade_accept', 'trade_unaccept', 'trade_cancel'):
+    _spec(_name, {'target_guid': _GUID, 'trade_id': _GUID, 'trade_revision': _POSITIVE})
 for _name in ('vendor_list', 'trainer_list'):
     _spec(_name, {'target_guid': _GUID}, {'page': _UINT})
 _spec('vendor_buy', {'target_guid': _GUID, 'item_id': _POSITIVE,
@@ -67,7 +69,7 @@ def _valid(value: Any, field: str, spec: dict[str, Any]) -> bool:
     if 'enum' in spec:
         return value in spec['enum'] and isinstance(value, str)
     kind = spec.get('type')
-    if field.endswith('_guid'):
+    if field.endswith('_guid') or field == 'trade_id':
         if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
             return False
         return (value == '0' and field == 'target_guid' and spec.get('pattern', '').startswith('^(0|')) or (

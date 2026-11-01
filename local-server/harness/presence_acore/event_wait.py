@@ -15,6 +15,8 @@ FILTERS = {
     "party_separation": {"party_separation", "party_rejoined"}, "arrival": {"arrival"},
     "action_result": {"action_result"}, "loot_change": {"inventory_changed", "loot_result"},
     "quest_change": {"quest_changed"}, "area_change": {"area_changed"},
+    "trade_change": {"trade_request", "trade_open", "trade_offer_changed", "trade_partner_accepted",
+                     "trade_acceptance_reset", "trade_complete", "trade_cancelled", "trade_error", "trade_closed"},
 }
 
 

@@ -139,6 +139,7 @@ model-context inspection. Capture or storage failures are reported explicitly.
 | `/p Vesper, turn in Thirst Unending with Arcanist Helion.` | Asks him to approach the observed questgiver and advance the quest's normal dialog and reward steps. |
 | `/p Vesper, check the trainer and see what you can afford.` | Asks him to inspect a nearby trainer's offers and choose training. |
 | `/p Vesper, compare that new sword with your current weapon.` | Asks him to inspect carried gear and decide what to equip. |
+| `/p Vesper, check your carried gear and equip useful upgrades and bags.` | Asks him to review available equipment during safe downtime. |
 | `/p Vesper, sell the junk you don't need and repair your gear.` | Asks him to inspect a nearby vendor and choose sales or repairs. |
 
 These sentences are examples of ordinary requests, not additional
@@ -200,6 +201,17 @@ space from specialty bags. The existing `equip_item` action can equip a carried
 bag or request a particular bag slot. Luna receives guidance to notice usable
 bags and compare capacity; the controller does not select equipment for him.
 
+The local body view now links carried eligible gear to its exact observed slot,
+the current item or an empty slot, and an equip action. During safe downtime he
+can choose preparation instead of repeatedly waiting or moving to his own
+position. This was verified with his quest-reward gauntlets, vest, boots and
+other carried armor, plus the Sunstrider Book Satchel. You can also ask in party
+chat: `/p Vesper, check your carried gear and equip useful upgrades and bags.`
+
+Failed movement includes the exact attempted destination and recent failure
+counts. `no_path` means the normal pathfinder rejected that attempt; an observed
+upstairs NPC position alone does not establish a route to that floor.
+
 Meaningful quest readiness/dialog changes receive bounded body-planner attention.
 Individual objective-counter ticks do not summon a new model decision each time.
 Lost quest-action replies use the original request identity for one recovery
@@ -214,6 +226,30 @@ Remaining player-loop work includes targeted quest-item/consumable use, talent
 spending, dungeon Need/Greed/Pass choices, hearthstone/flight/bind actions, and
 death/corpse/resurrection recovery. Ordinary game-object interaction and known
 unit-targeted spell casting already exist, but do not cover every quest mechanic.
+
+## Giving Vesper gear through trade
+
+Installed October 31, 2026. With Presence running and unpaused, open WoW's normal
+trade window with Vesper, place the gear or money in your offer, and accept.
+He receives the real partner, offered items, available bag space and acceptance
+state, then chooses whether to open or accept the exchange. Changed offers need
+a fresh acceptance. Both players must accept before anything transfers.
+
+This first version receives gifts; it does not put Vesper's items or money into
+the window or perform trade-slot services. Its internal actions are
+`trade_begin`, `trade_accept`, `trade_unaccept` and `trade_cancel`, bound to the
+current partner, trade identity and offer revision. These are not slash commands.
+Acceptance alone is distinct from the server's completed-transfer receipt.
+After a server restart, reopen any interrupted trade normally.
+
+## Visible interaction feedback
+
+Vesper makes a brief hand/talk gesture when a normal NPC interaction or quest
+dialog advances, including opening a vendor or trainer menu. Opening a valid
+corpse loot window gives a brief pickup gesture. Chest pickups retain their
+normal opening spell animation. Extra gestures skip movement, combat and casting
+and are rate-limited. They indicate an interaction began, not that an item was
+received or a quest reward was claimed.
 
 ## MCP context and direct gameplay
 

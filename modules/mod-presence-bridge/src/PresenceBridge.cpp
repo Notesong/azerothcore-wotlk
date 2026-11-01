@@ -419,6 +419,23 @@ struct NativeJournal
     uint64 excludedDecodeError = 0;
 };
 
+struct TradeFrame
+{
+    uint64 id = 0;
+    uint32 revision = 0;
+    ObjectGuid partner;
+    bool active = false;
+    bool open = false;
+    uint32 lastStatus = 0;
+    uint64 statusSequence = 0;
+    uint32 inventoryResult = 0;
+    bool targetResult = false;
+    uint32 limitedItem = 0;
+    std::string fingerprint;
+    Json::object receipt;
+    bool pendingConsent = false;
+};
+
 struct Actor
 {
     std::unique_ptr<WorldSession> session;
@@ -451,6 +468,7 @@ struct Actor
     std::map<ObjectGuid, bool> journalParty;
     std::map<ObjectGuid, Json::object> journalPartyUnits;
     std::chrono::steady_clock::time_point lootDeadline;
+    std::chrono::steady_clock::time_point nextInteractionGesture;
 };
 
 struct OpeningLoot
@@ -507,6 +525,7 @@ struct GuardActionContext
     uint32 dropped = 0;
     uint32 quest = 0;
     bool questRewarded = false;
+    bool interactionVisualObserved = false;
 };
 
 // Only synchronous hooks on this action's thread may claim its request identity.
@@ -649,7 +668,7 @@ public:
                         "request_reward", "reward_quest",
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "gossip_select",
-                        "vendor_buyback"}},
+                        "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
                     {"headless", true}, {"allowed_characters", AllowedNames()}});
@@ -1048,6 +1067,7 @@ public:
             }
             if (actor->phase == "ready")
             {
+                RefreshTrade(player);
                 ProcessSharedQuest(*actor, player);
                 ProcessQuestAbandonCommands(*actor, player);
                 UpdateProtection(*actor, player);
@@ -1600,9 +1620,31 @@ public:
         Player* player = session->GetPlayer();
         if (!player || !session->IsHeadless())
             return;
+        if (CurrentGuardAction && CurrentGuardAction->owner == player->GetGUID())
+        {
+            // Preserve a normal spell or scripted player gesture instead of
+            // overwriting it with the bridge's brief interaction feedback.
+            if (packet.GetOpcode() == SMSG_SPELL_START || packet.GetOpcode() == SMSG_SPELL_GO)
+                CurrentGuardAction->interactionVisualObserved = true;
+            else if (packet.GetOpcode() == SMSG_EMOTE && packet.size() >= 12)
+            {
+                WorldPacket copy(packet);
+                uint32 emote;
+                ObjectGuid actor;
+                copy >> emote >> actor;
+                if (actor == player->GetGUID())
+                    CurrentGuardAction->interactionVisualObserved = true;
+            }
+        }
         Json::object event;
         switch (packet.GetOpcode())
         {
+            case SMSG_TRADE_STATUS:
+                CaptureTradeStatus(session, packet);
+                return;
+            case SMSG_TRADE_STATUS_EXTENDED:
+                // Read current TradeData at the next world-thread safe point.
+                return;
             case SMSG_TEXT_EMOTE:
                 event = TextEmoteEvent(session, packet);
                 break;
@@ -2680,6 +2722,7 @@ private:
         _openingLoot.erase(session);
         _rewardReceipts.erase(session);
         _partyInvites.erase(session);
+        _tradeFrames.erase(session);
         _questShares.erase(session);
         _questAbandons.erase(session);
         _lastQuestAbandon.erase(session);
@@ -2688,6 +2731,460 @@ private:
         _trainerMenus.erase(session);
         _questMenus.erase(session);
         _questDialogs.erase(session);
+    }
+
+    Json::object TradeOffer(Player* viewer, TradeData* data)
+    {
+        Json::array items;
+        Json::value service = nullptr;
+        for (uint8 slot = 0; slot < TRADE_SLOT_COUNT; ++slot)
+            if (Item* item = data->GetItem(TradeSlots(slot)))
+            {
+                Json::object facts = ItemFacts(viewer, item->GetTemplate(), item);
+                facts["trade_slot"] = slot;
+                facts["owner_guid"] = std::to_string(item->GetOwnerGUID().GetRawValue());
+                facts["wrapped"] = item->IsWrapped();
+                facts["tradeable_to_recipient"] = item->CanBeTraded(false, true) && !item->IsBindedNotWith(viewer);
+                if (slot == TRADE_SLOT_NONTRADED)
+                    service = std::move(facts);
+                else
+                    items.emplace_back(std::move(facts));
+            }
+        Item* castItem = data->GetSpellCastItem();
+        return {{"items", std::move(items)}, {"money", data->GetMoney()}, {"spell_id", data->GetSpell()},
+            {"spell_cast_item_guid", castItem ? std::to_string(castItem->GetGUID().GetRawValue()) : "0"},
+            {"nontraded_item", std::move(service)}};
+    }
+
+    std::string TradeFingerprint(TradeData* mine, TradeData* theirs)
+    {
+        Json::array offers;
+        for (TradeData* data : {mine, theirs})
+        {
+            Json::array slots;
+            for (uint8 slot = 0; slot < TRADE_SLOT_COUNT; ++slot)
+            {
+                Json::value value = nullptr;
+                if (Item* item = data->GetItem(TradeSlots(slot)))
+                {
+                    Json::array enchantments;
+                    for (uint8 index = 0; index < MAX_ENCHANTMENT_SLOT; ++index)
+                        enchantments.emplace_back(item->GetEnchantmentId(EnchantmentSlot(index)));
+                    Json::array charges;
+                    for (uint8 index = 0; index < MAX_ITEM_PROTO_SPELLS; ++index)
+                        charges.emplace_back(item->GetSpellCharges(index));
+                    value = Json::object{{"guid", std::to_string(item->GetGUID().GetRawValue())},
+                        {"entry", item->GetEntry()}, {"count", item->GetCount()},
+                        {"owner", std::to_string(item->GetOwnerGUID().GetRawValue())},
+                        {"property", item->GetItemRandomPropertyId()}, {"suffix", item->GetItemSuffixFactor()},
+                        {"wrapped", item->IsWrapped()}, {"soulbound", item->IsSoulBound()},
+                        {"gift_creator", std::to_string(item->GetGuidValue(ITEM_FIELD_GIFTCREATOR).GetRawValue())},
+                        {"creator", std::to_string(item->GetGuidValue(ITEM_FIELD_CREATOR).GetRawValue())},
+                        {"charges", std::move(charges)}, {"enchantments", std::move(enchantments)}};
+                }
+                slots.emplace_back(std::move(value));
+            }
+            Item* castItem = data->GetSpellCastItem();
+            offers.emplace_back(Json::object{{"items", std::move(slots)}, {"money", data->GetMoney()},
+                {"spell", data->GetSpell()},
+                {"cast_item", castItem ? std::to_string(castItem->GetGUID().GetRawValue()) : "0"}});
+        }
+        return Json::serialize(offers);
+    }
+
+    Json::object TradeInventoryState(Player* player, Player* partner, Json::object const& approved)
+    {
+        Json::array items;
+        auto offer = approved.if_contains("partner_offer");
+        auto rows = offer && offer->is_object() ? offer->as_object().if_contains("items") : nullptr;
+        if (rows && rows->is_array())
+            for (auto const& row : rows->as_array())
+            {
+                if (!row.is_object())
+                    continue;
+                auto const& item = row.as_object();
+                ObjectGuid guid(GuidNumber(item, "guid"));
+                uint32 entry = Unsigned(item, "item_id");
+                Item* ownItem = player->GetItemByGuid(guid);
+                Item* partnerItem = partner ? partner->GetItemByGuid(guid) : nullptr;
+                Json::object fact{{"source_guid", Text(item, "guid")}, {"item_id", entry},
+                    {"offered_count", Unsigned(item, "count")},
+                    {"self_guid_count", ownItem ? ownItem->GetCount() : 0},
+                    {"self_entry_count", player->GetItemCount(entry, false)}};
+                fact["partner_guid_count"] = partner
+                    ? Json::value(partnerItem ? partnerItem->GetCount() : 0) : Json::value(nullptr);
+                fact["partner_entry_count"] = partner
+                    ? Json::value(partner->GetItemCount(entry, false)) : Json::value(nullptr);
+                items.emplace_back(std::move(fact));
+            }
+        return {{"self_money", player->GetMoney()},
+            {"partner_money", partner ? Json::value(partner->GetMoney()) : Json::value(nullptr)},
+            {"items", std::move(items)}, {"timestamp", Timestamp()},
+            {"count_note", "Stacks may merge and lose their source GUID; entry totals include other copies."}};
+    }
+
+    void RefreshTrade(Player* player)
+    {
+        WorldSession* session = player->GetSession();
+        TradeData* mine = player->GetTradeData();
+        Player* partner = mine ? mine->GetTrader() : nullptr;
+        TradeData* theirs = partner ? partner->GetTradeData() : nullptr;
+        bool valid = partner && theirs && theirs->GetTrader() == player;
+        std::string fingerprint = valid ? TradeFingerprint(mine, theirs) : "";
+        Json::object event;
+        bool withdrawConsent = false;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(session))
+                return;
+            auto found = _tradeFrames.find(session);
+            if (!valid)
+            {
+                if (found != _tradeFrames.end() && found->second.active)
+                {
+                    TradeFrame& frame = found->second;
+                    frame.active = false;
+                    if (frame.pendingConsent)
+                    {
+                        frame.receipt["status"] = "ended_unconfirmed";
+                        frame.receipt["transfer_completed"] = false;
+                        frame.receipt["timestamp"] = Timestamp();
+                        frame.pendingConsent = false;
+                    }
+                    event = {{"type", "trade_closed"}, {"trade_id", std::to_string(frame.id)},
+                        {"target_guid", std::to_string(frame.partner.GetRawValue())}};
+                }
+            }
+            else
+            {
+                TradeFrame& frame = _tradeFrames[session];
+                if (!frame.active || frame.partner != partner->GetGUID())
+                {
+                    Json::object receipt = std::move(frame.receipt);
+                    frame = TradeFrame{};
+                    frame.id = ++_tradeSequence;
+                    frame.partner = partner->GetGUID();
+                    frame.active = true;
+                    frame.receipt = std::move(receipt);
+                }
+                if (frame.fingerprint != fingerprint)
+                {
+                    if (frame.revision == std::numeric_limits<uint32>::max())
+                    {
+                        frame.id = ++_tradeSequence;
+                        frame.revision = 0;
+                    }
+                    ++frame.revision;
+                    frame.fingerprint = std::move(fingerprint);
+                    if (frame.pendingConsent)
+                    {
+                        withdrawConsent = mine->IsAccepted();
+                        frame.receipt["status"] = "offer_changed";
+                        frame.receipt["transfer_completed"] = false;
+                        frame.receipt["timestamp"] = Timestamp();
+                        frame.pendingConsent = false;
+                    }
+                    event = {{"type", "trade_offer_changed"}, {"trade_id", std::to_string(frame.id)},
+                        {"revision", frame.revision}, {"target_guid", std::to_string(frame.partner.GetRawValue())}};
+                }
+                else if (frame.pendingConsent && !mine->IsAccepted())
+                {
+                    frame.receipt["status"] = "acceptance_withdrawn";
+                    frame.receipt["transfer_completed"] = false;
+                    frame.receipt["timestamp"] = Timestamp();
+                    frame.pendingConsent = false;
+                }
+            }
+        }
+        // Item metadata can change without TradeData::SetItem/SetMoney. Revoke
+        // previously granted consent through the normal handler in that case.
+        if (withdrawConsent && player->GetTradeData() && player->GetTradeData()->IsAccepted())
+        {
+            WorldPacket packet;
+            session->HandleUnacceptTradeOpcode(packet);
+        }
+        if (!event.empty())
+            RecordEvent(session, std::move(event));
+    }
+
+    void CaptureTradeStatus(WorldSession* session, WorldPacket const& packet)
+    {
+        if (packet.size() < 4)
+            return;
+        WorldPacket copy(packet);
+        uint32 status;
+        copy >> status;
+        ObjectGuid requester;
+        uint32 result = 0;
+        uint8 targetResult = 0;
+        uint32 limited = 0;
+        if (status == TRADE_STATUS_BEGIN_TRADE && copy.size() >= 12)
+            copy >> requester;
+        else if (status == TRADE_STATUS_CLOSE_WINDOW && copy.size() >= 13)
+            copy >> result >> targetResult >> limited;
+        Player* player = session->GetPlayer();
+        Json::object event;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(session))
+                return;
+            TradeFrame& frame = _tradeFrames[session];
+            if (status == TRADE_STATUS_BEGIN_TRADE && requester)
+            {
+                Json::object receipt = std::move(frame.receipt);
+                frame = TradeFrame{};
+                frame.id = ++_tradeSequence;
+                frame.partner = requester;
+                frame.active = true;
+                frame.receipt = std::move(receipt);
+            }
+            bool changed = frame.lastStatus != status || status == TRADE_STATUS_BEGIN_TRADE;
+            frame.lastStatus = status;
+            ++frame.statusSequence;
+            if (status == TRADE_STATUS_OPEN_WINDOW)
+                frame.open = true;
+            if (status == TRADE_STATUS_CLOSE_WINDOW || status == TRADE_STATUS_TRADE_CANCELED)
+                frame.open = false;
+            if (status == TRADE_STATUS_CLOSE_WINDOW)
+            {
+                frame.inventoryResult = result;
+                frame.targetResult = targetResult != 0;
+                frame.limitedItem = limited;
+            }
+            if (status == TRADE_STATUS_TRADE_COMPLETE)
+            {
+                Player* partner = ObjectAccessor::FindPlayer(frame.partner);
+                bool attributed = frame.pendingConsent;
+                if (!attributed)
+                    frame.receipt = {{"trade_id", std::to_string(frame.id)}, {"revision", frame.revision},
+                        {"target_guid", std::to_string(frame.partner.GetRawValue())}, {"before", nullptr}};
+                Json::object approved;
+                if (auto value = frame.receipt.if_contains("approved_offer"); value && value->is_object())
+                    approved = value->as_object();
+                frame.receipt["after"] = TradeInventoryState(player, partner, approved);
+                frame.receipt["status"] = "completed";
+                frame.receipt["transfer_completed"] = true;
+                frame.receipt["attributed_to_model_accept"] = attributed;
+                frame.receipt["source"] = "normal_trade_complete_packet";
+                frame.receipt["timestamp"] = Timestamp();
+                frame.pendingConsent = false;
+                frame.active = false;
+            }
+            else if (status == TRADE_STATUS_TRADE_CANCELED && frame.pendingConsent)
+            {
+                frame.receipt["status"] = "cancelled";
+                frame.receipt["transfer_completed"] = false;
+                frame.receipt["timestamp"] = Timestamp();
+                frame.pendingConsent = false;
+            }
+            char const* type = status == TRADE_STATUS_BEGIN_TRADE ? "trade_request"
+                : status == TRADE_STATUS_OPEN_WINDOW ? "trade_open"
+                : status == TRADE_STATUS_TRADE_ACCEPT ? "trade_partner_accepted"
+                : status == TRADE_STATUS_BACK_TO_TRADE ? "trade_acceptance_reset"
+                : status == TRADE_STATUS_TRADE_COMPLETE ? "trade_complete"
+                : status == TRADE_STATUS_TRADE_CANCELED ? "trade_cancelled" : "trade_error";
+            if (changed || status == TRADE_STATUS_TRADE_COMPLETE || status == TRADE_STATUS_CLOSE_WINDOW)
+                event = {{"type", type}, {"trade_id", std::to_string(frame.id)}, {"revision", frame.revision},
+                    {"target_guid", std::to_string(frame.partner.GetRawValue())}, {"trade_status", status},
+                    {"inventory_result", result}, {"is_target_result", targetResult != 0},
+                    {"limited_item_id", limited}};
+        }
+        if (!event.empty())
+            RecordEvent(session, std::move(event));
+    }
+
+    std::string ReceiveOnlyTradeReason(Player* player, Player* partner, TradeData* mine, TradeData* theirs,
+        bool& receiveOnly, bool& canStore, uint32& inventoryResult, uint32& limited)
+    {
+        receiveOnly = mine->GetMoney() == 0 && !mine->GetSpell() && !theirs->GetSpell()
+            && !mine->HasSpellCastItem() && !theirs->HasSpellCastItem()
+            && !theirs->GetItem(TRADE_SLOT_NONTRADED);
+        for (uint8 slot = 0; slot < TRADE_SLOT_COUNT; ++slot)
+            if (mine->GetItem(TradeSlots(slot)))
+                receiveOnly = false;
+        Item* incoming[TRADE_SLOT_TRADED_COUNT] = {};
+        bool hasOffer = theirs->GetMoney() > 0;
+        bool tradeable = true;
+        for (uint8 slot = 0; slot < TRADE_SLOT_TRADED_COUNT; ++slot)
+            if (Item* item = theirs->GetItem(TradeSlots(slot)))
+            {
+                incoming[slot] = item;
+                hasOffer = true;
+                tradeable = tradeable && item->CanBeTraded(false, true) && !item->IsBindedNotWith(player);
+            }
+        inventoryResult = uint32(player->CanStoreItems(incoming, TRADE_SLOT_TRADED_COUNT, &limited));
+        canStore = inventoryResult == EQUIP_ERR_OK;
+        if (!receiveOnly)
+            return "receive_only_no_outgoing_items_money_or_services";
+        if (!player->IsAlive() || !partner->IsAlive())
+            return "trader_dead";
+        if (!player->IsWithinDistInMap(partner, TRADE_DISTANCE, false))
+            return "trader_out_of_range";
+        if (player->GetSession()->IsLoggingOut() || partner->GetSession()->IsLoggingOut())
+            return "trader_logging_out";
+        if (!hasOffer)
+            return "empty_incoming_offer";
+        if (!tradeable)
+            return "incoming_item_not_tradeable_to_recipient";
+        if (!canStore)
+            return "incoming_items_cannot_be_stored";
+        if (!partner->HasEnoughMoney(theirs->GetMoney()))
+            return "partner_lacks_offered_money";
+        if (player->GetMoney() >= MAX_MONEY_AMOUNT - theirs->GetMoney())
+            return "recipient_money_cap";
+        return "";
+    }
+
+    Json::value TradeSnapshot(Player* player)
+    {
+        RefreshTrade(player);
+        TradeData* mine = player->GetTradeData();
+        Player* partner = mine ? mine->GetTrader() : nullptr;
+        TradeData* theirs = partner ? partner->GetTradeData() : nullptr;
+        if (!partner || !theirs || theirs->GetTrader() != player)
+            return nullptr;
+        TradeFrame frame;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _tradeFrames.find(player->GetSession());
+            if (found == _tradeFrames.end() || !found->second.active)
+                return nullptr;
+            frame = found->second;
+        }
+        bool receiveOnly = false;
+        bool canStore = false;
+        uint32 inventoryResult = 0;
+        uint32 limited = 0;
+        std::string reason = ReceiveOnlyTradeReason(player, partner, mine, theirs,
+            receiveOnly, canStore, inventoryResult, limited);
+        if (reason.empty() && !frame.open)
+            reason = "trade_window_not_open";
+        if (reason.empty() && mine->IsAccepted())
+            reason = "already_accepted_waiting_for_partner";
+        Json::object actions;
+        for (auto const& step : {"begin", "accept", "unaccept", "cancel"})
+        {
+            std::string name(step);
+            if ((name == "accept" && !reason.empty()) || (name == "unaccept" && !mine->IsAccepted())
+                || (name == "begin" && (frame.open || !player->IsAlive() || !partner->IsAlive()
+                    || !player->IsWithinDistInMap(partner, TRADE_DISTANCE, false))))
+                continue;
+            actions[step] = Json::object{{"type", std::string("trade_") + step},
+                {"target_guid", std::to_string(frame.partner.GetRawValue())},
+                {"trade_id", std::to_string(frame.id)}, {"trade_revision", frame.revision}};
+        }
+        return Json::object{{"trade_id", std::to_string(frame.id)}, {"revision", frame.revision},
+            {"target_guid", std::to_string(frame.partner.GetRawValue())},
+            {"partner", Json::object{{"guid", std::to_string(frame.partner.GetRawValue())},
+                {"name", partner->GetName()}, {"distance", player->GetDistance(partner)}}},
+            {"phase", frame.open ? "open" : "requested"},
+            {"self_accepted", mine->IsAccepted()}, {"partner_accepted", theirs->IsAccepted()},
+            {"self_offer", TradeOffer(player, mine)}, {"partner_offer", TradeOffer(player, theirs)},
+            {"receive_only", receiveOnly}, {"can_store", canStore}, {"inventory_result", inventoryResult},
+            {"limited_item_id", limited}, {"can_accept", reason.empty()}, {"blocked_reason", reason},
+            {"last_trade_status", frame.lastStatus}, {"last_inventory_result", frame.inventoryResult},
+            {"last_is_target_result", frame.targetResult}, {"last_limited_item_id", frame.limitedItem},
+            {"actions", std::move(actions)}};
+    }
+
+    Json::object RespondToTrade(Json::object const& request, Json::object const& action, Actor& actor, Player* player)
+    {
+        Json::value snapshot = TradeSnapshot(player);
+        if (!snapshot.is_object())
+            return Error(request, "no_trade", "No current reciprocal trade is available");
+        auto const& state = snapshot.as_object();
+        auto revision = action.if_contains("trade_revision");
+        bool validRevision = revision && ((revision->is_uint64() && revision->as_uint64() > 0)
+            || (revision->is_int64() && revision->as_int64() > 0));
+        if (Text(action, "target_guid") != Text(state, "target_guid")
+            || Text(action, "trade_id") != Text(state, "trade_id") || !validRevision
+            || revision->to_number<uint64>() != Unsigned(state, "revision"))
+            return Error(request, "trade_changed", "Observe current partner, trade_id and revision before choosing");
+        std::string type = Text(action, "type");
+        if (type == "trade_accept" && !state.at("can_accept").as_bool())
+            return Error(request, "trade_not_acceptable", Text(state, "blocked_reason"));
+        TradeData* mine = player->GetTradeData();
+        Player* partner = mine->GetTrader();
+        if (type == "trade_begin" && (!player->IsAlive() || !partner->IsAlive()
+            || !player->IsWithinDistInMap(partner, TRADE_DISTANCE, false)))
+            return Error(request, "cannot_begin_trade", "Opening trade requires living traders in normal trade range");
+        std::string requestId = Text(request, "id");
+        uint64 statusSequence = 0;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            statusSequence = _tradeFrames[actor.session.get()].statusSequence;
+        }
+        if (type == "trade_accept")
+        {
+            Json::object approved{{"self_offer", state.at("self_offer")}, {"partner_offer", state.at("partner_offer")}};
+            Json::object before = TradeInventoryState(player, partner, approved);
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            TradeFrame& frame = _tradeFrames[actor.session.get()];
+            frame.receipt = {{"trade_id", Text(state, "trade_id")}, {"revision", Unsigned(state, "revision")},
+                {"target_guid", Text(state, "target_guid")}, {"request_id", requestId},
+                {"status", "consent_recorded"}, {"transfer_completed", false},
+                {"approved_offer", std::move(approved)}, {"before", std::move(before)}, {"after", nullptr},
+                {"timestamp", Timestamp()}, {"source", "normal_trade_accept_handler"}};
+            frame.pendingConsent = true;
+        }
+        WorldPacket packet;
+        if (type == "trade_begin")
+            actor.session->HandleBeginTradeOpcode(packet);
+        else if (type == "trade_accept")
+            actor.session->HandleAcceptTradeOpcode(packet);
+        else if (type == "trade_unaccept")
+            actor.session->HandleUnacceptTradeOpcode(packet);
+        else
+            actor.session->HandleCancelTradeOpcode(packet);
+        bool handlerFailed = false;
+        if (type == "trade_accept")
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            TradeFrame const& frame = _tradeFrames[actor.session.get()];
+            handlerFailed = frame.statusSequence != statusSequence && frame.lastStatus != TRADE_STATUS_OPEN_WINDOW
+                && frame.lastStatus != TRADE_STATUS_TRADE_ACCEPT && frame.lastStatus != TRADE_STATUS_BACK_TO_TRADE
+                && frame.lastStatus != TRADE_STATUS_TRADE_COMPLETE;
+        }
+        // Some normal failure paths retain TradeData or acceptance. A failed
+        // request must not leave consent that could commit on a later click.
+        if (handlerFailed && player->GetTradeData() && player->GetTradeData()->IsAccepted())
+            actor.session->HandleUnacceptTradeOpcode(packet);
+        RefreshTrade(player);
+        Json::object receipt;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            TradeFrame& frame = _tradeFrames[actor.session.get()];
+            if (type == "trade_accept" && Text(frame.receipt, "status") != "completed")
+            {
+                bool accepted = player->GetTradeData() && player->GetTradeData()->IsAccepted();
+                if (!accepted || handlerFailed)
+                {
+                    frame.receipt["status"] = "failed";
+                    frame.receipt["transfer_completed"] = false;
+                    frame.receipt["timestamp"] = Timestamp();
+                    frame.pendingConsent = false;
+                }
+            }
+            receipt = frame.receipt;
+        }
+        bool completed = type == "trade_accept" && Text(receipt, "status") == "completed"
+            && Text(receipt, "request_id") == requestId;
+        if (type == "trade_accept" && !completed && Text(receipt, "status") != "consent_recorded")
+        {
+            auto failure = Error(request, "trade_accept_failed", "Normal trade handler did not retain acceptance");
+            failure["result"] = Json::object{{"request_id", requestId}, {"status", "failed"},
+                {"transfer_completed", false}, {"trade_receipt", receipt}};
+            return failure;
+        }
+        std::string outcome = type == "trade_begin" ? "open" : type == "trade_unaccept" ? "acceptance_withdrawn"
+            : type == "trade_cancel" ? "cancelled" : completed ? "completed" : "awaiting_partner_acceptance";
+        Json::object result{{"status", "completed"}, {"request_id", requestId}, {"outcome", outcome},
+            {"trade_id", Text(state, "trade_id")}, {"trade_revision", Unsigned(state, "revision")},
+            {"target_guid", Text(state, "target_guid")}, {"transfer_completed", completed},
+            {"trade", TradeSnapshot(player)}};
+        if (type == "trade_accept")
+            result["trade_receipt"] = std::move(receipt);
+        return Response(request, true, std::move(result));
     }
 
     void CaptureQuestAbandonCommand(WorldSession* session, Json::object& event)
@@ -3075,6 +3572,13 @@ private:
         self["controller_owned"] = _actors.contains(name) && _actors[name]->session->GetPlayer() == player;
         self["target_guid"] = std::to_string(player->GetTarget().GetRawValue());
         Json::object result{{"self", self}, {"sequence", sequence}, {"timestamp", timestamp}};
+        result["trade"] = TradeSnapshot(player);
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto trade = _tradeFrames.find(player->GetSession());
+            result["trade_receipt"] = trade != _tradeFrames.end() && !trade->second.receipt.empty()
+                ? Json::value(trade->second.receipt) : Json::value(nullptr);
+        }
         result["pending_loot"] = nullptr;
         if (auto found = _actors.find(name); found != _actors.end() && !found->second->lootId.empty())
         {
@@ -3506,6 +4010,8 @@ private:
                 std::lock_guard<std::mutex> lock(_eventMutex);
                 (trainer ? _trainerMenus : _vendorMenus)[actor.session.get()].page = page;
             }
+            if (!player->IsBeingTeleported())
+                InteractionGesture(actor, player, CommerceNpc(player, target, flags), EMOTE_ONESHOT_TALK);
             return Response(request, true, {{"status", "completed"}, {"request_id", Text(request, "id")},
                 {"target_guid", std::to_string(target.GetRawValue())}, {"page", page},
                 {trainer ? "total_spells" : "total_items", menu.total},
@@ -3673,6 +4179,22 @@ private:
             {"learned_spells", std::move(learnedSpells)}});
     }
 
+    void InteractionGesture(Actor& actor, Player* player, WorldObject* source, uint32 emote)
+    {
+        if (!source || !player->IsAlive() || !player->IsInWorld() || player->isMoving() || player->IsInCombat()
+            || player->IsNonMeleeSpellCast(false) || !player->SpellQueue.empty()
+            || player->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING)
+            || !player->IsWithinDistInMap(source, INTERACTION_DISTANCE) || !player->IsWithinLOSInMap(source)
+            || (CurrentGuardAction && CurrentGuardAction->interactionVisualObserved))
+            return;
+        auto now = std::chrono::steady_clock::now();
+        if (now < actor.nextInteractionGesture)
+            return;
+        actor.nextInteractionGesture = now + std::chrono::seconds(1);
+        // One-shot broadcast only: no text emote, movement, facing, or persistent pose.
+        player->HandleEmoteCommand(emote);
+    }
+
     Json::object QuestAction(Json::object const& request, Json::object const& action, Actor& actor,
         Player* player, WorldObject* source, std::string const& type)
     {
@@ -3810,6 +4332,8 @@ private:
             : type == "complete_quest" ? (freshDialog
                 && (after->phase == "request_items" || after->phase == "offer_reward")) || trackingReward
             : freshDialog || accepted || trackingReward;
+        if (success && sourceGuid.IsCreature() && player->IsInWorld() && !player->IsBeingTeleported())
+            InteractionGesture(actor, player, player->GetMap()->GetCreature(sourceGuid), EMOTE_ONESHOT_TALK);
         Json::array changes;
         for (auto const& [item, before] : beforeItems)
         {
@@ -3920,6 +4444,8 @@ private:
         }
         if (type == "party_accept" || type == "party_decline")
             return RespondToPartyInvite(request, action, actor, player);
+        if (type == "trade_begin" || type == "trade_accept" || type == "trade_unaccept" || type == "trade_cancel")
+            return RespondToTrade(request, action, actor, player);
         if ((actor.protectionMode == "evading" || actor.protectionMode == "stopped_no_safe_path"
             || ProtectionUncertain(player)) && (type == "attack" || type == "move_to" || type == "follow"))
         {
@@ -4143,7 +4669,19 @@ private:
                     return Error(request, "cannot_interact", "NPC cannot be interacted with normally");
                 WorldPacket packet(CMSG_GOSSIP_HELLO, 8);
                 packet << creature->GetGUID();
+                auto beforeMenu = CurrentQuestFrame(actor.session.get(), false);
+                auto beforeDialog = CurrentQuestFrame(actor.session.get(), true);
                 actor.session->HandleGossipHelloOpcode(packet);
+                auto afterMenu = CurrentQuestFrame(actor.session.get(), false);
+                auto afterDialog = CurrentQuestFrame(actor.session.get(), true);
+                bool ready = player->IsInWorld() && !player->IsBeingTeleported()
+                    && player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_QUESTGIVER);
+                bool freshMenu = ready && afterMenu && afterMenu->source == guid
+                    && (!beforeMenu || afterMenu->revision != beforeMenu->revision);
+                bool freshDialog = ready && afterDialog && afterDialog->source == guid
+                    && (!beforeDialog || afterDialog->revision != beforeDialog->revision);
+                if (freshMenu || freshDialog)
+                    InteractionGesture(actor, player, player->GetMap()->GetCreature(guid), EMOTE_ONESHOT_TALK);
             }
             else if (GameObject* gameObject = object->ToGameObject())
             {
@@ -4339,6 +4877,8 @@ private:
         }
         if (!window.valid || window.guid != guid || player->GetLootGUID() != guid)
             return Error(request, "loot_rejected", "Normal loot handler did not open this corpse");
+        if (player->IsInWorld() && !player->IsBeingTeleported())
+            InteractionGesture(actor, player, player->GetMap()->GetCreature(guid), EMOTE_ONESHOT_LOOT);
         return StoreLootWindow(request, actor, guid, window);
     }
 
@@ -4735,6 +5275,7 @@ private:
     std::map<WorldSession*, QuestFrame> _questMenus;
     std::map<WorldSession*, QuestFrame> _questDialogs;
     std::map<WorldSession*, PartyInvite> _partyInvites;
+    std::map<WorldSession*, TradeFrame> _tradeFrames;
     std::map<WorldSession*, SharedQuestOffer> _questShares;
     std::map<WorldSession*, std::deque<QuestAbandonCommand>> _questAbandons;
     std::map<WorldSession*, std::pair<std::string, std::chrono::steady_clock::time_point>> _lastQuestAbandon;
@@ -4762,6 +5303,7 @@ private:
     uint64 _questShareSequence = 0;
     uint64 _commerceSequence = 0;
     uint64 _questFrameSequence = 0;
+    uint64 _tradeSequence = (uint64(urand(1, 0x7FFFFFFF)) << 32) | urand(0, 0xFFFFFFFF);
 };
 
 class Commands : public CommandScript
