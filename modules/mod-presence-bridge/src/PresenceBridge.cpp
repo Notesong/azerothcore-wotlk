@@ -32,6 +32,8 @@
 #include "PlayerScript.h"
 #include "PresenceCommercePolicy.h"
 #include "PresenceEmotePolicy.h"
+#include "PresenceEventJournal.h"
+#include "Random.h"
 #include "PresenceGuardTelemetry.h"
 #include "PresenceQuestCommand.h"
 #include "PresenceProtectionPolicy.h"
@@ -406,6 +408,15 @@ struct CachedRequest
 {
     std::string encoded;
     Json::object response;
+    std::string actionType;
+};
+
+struct NativeJournal
+{
+    ObjectGuid observer;
+    JournalBuffer<Json::object> buffer;
+    uint64 excludedAddon = 0;
+    uint64 excludedDecodeError = 0;
 };
 
 struct Actor
@@ -432,6 +443,13 @@ struct Actor
     uint32 lootSpell = 0;
     uint8 lootCastCount = 0;
     uint8 nextLootCastCount = 0;
+    Json::object journalBasic;
+    bool journalDetailsReady = false;
+    std::chrono::steady_clock::time_point journalNextDetails;
+    std::map<uint32, uint64> journalInventory;
+    std::map<uint32, Json::object> journalQuests;
+    std::map<ObjectGuid, bool> journalParty;
+    std::map<ObjectGuid, Json::object> journalPartyUnits;
     std::chrono::steady_clock::time_point lootDeadline;
 };
 
@@ -625,7 +643,7 @@ public:
                 return Error(request, "invalid_request", "Expected v=1, id (1-128 characters), and op");
             if (op == "capabilities")
                 return Response(request, true, {{"protocol", 1}, {"operations", Json::array{
-                    "observe", "action", "action_result", "capabilities", "attach", "detach"}},
+                    "observe", "events", "action", "action_result", "capabilities", "attach", "detach"}},
                     {"actions", Json::array{"say", "emote", "move_to", "stop", "follow", "target",
                         "attack", "cast", "interact", "loot", "query_quest", "accept_quest", "complete_quest",
                         "request_reward", "reward_quest",
@@ -650,6 +668,8 @@ public:
                 return Observe(request, name);
             if (!_allowed.contains(name))
                 return Error(request, "character_not_allowed", "Character is outside PresenceBridge.AllowedCharacters");
+            if (op == "events")
+                return JournalRead(request, name);
             auto duplicate = _requests.find(id);
             if (duplicate != _requests.end())
             {
@@ -680,7 +700,12 @@ public:
                 response = Action(request, name);
             else
                 response = Error(request, "unknown_operation", "Operation is not supported");
-            Remember(id, encoded, response);
+            std::string actionType;
+            if (auto action = request.if_contains("action"); op == "action" && action && action->is_object())
+                actionType = Text(action->as_object(), "type");
+            Remember(id, encoded, response, actionType);
+            if (op == "action")
+                JournalAction(name, id, actionType, response);
             return response;
         }
         catch (std::exception const& exception)
@@ -692,6 +717,298 @@ public:
                     envelope[key] = *value;
             return Error(envelope, "invalid_request", exception.what());
         }
+    }
+
+    static std::set<std::string> const& JournalTypes()
+    {
+        static std::set<std::string> const types{"chat", "text_emote", "combat_started", "combat_ended",
+            "damage", "death", "resurrected", "area_changed", "quest_changed", "inventory_changed",
+            "party_separation", "party_rejoined", "arrival", "action_result", "loot_result"};
+        return types;
+    }
+
+    void JournalAppendLocked(Player* player, std::string const& type, Json::object payload, ObjectGuid actor = {})
+    {
+        auto& journal = _journals[player->GetName()];
+        journal.observer = player->GetGUID();
+        if (journal.buffer.Newest() == std::numeric_limits<uint64>::max())
+            return;
+        std::string sequence = std::to_string(journal.buffer.Newest() + 1);
+        journal.buffer.Push(Json::object{{"type", type}, {"timestamp", Timestamp()},
+            {"cursor", _journalEpoch + ":" + sequence}, {"sequence", sequence},
+            {"observer_guid", std::to_string(player->GetGUID().GetRawValue())},
+            {"actor_guid", std::to_string((actor ? actor : player->GetGUID()).GetRawValue())},
+            {"payload", std::move(payload)}});
+    }
+
+    void JournalAppend(Player* player, std::string const& type, Json::object payload, ObjectGuid actor = {})
+    {
+        if (!player || !player->GetSession())
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        if (_ownedSessions.contains(player->GetSession()))
+            JournalAppendLocked(player, type, std::move(payload), actor);
+    }
+
+    Json::object JournalRead(Json::object const& request, std::string const& name)
+    {
+        std::set<std::string> selected;
+        if (auto filters = request.if_contains("event_types"))
+        {
+            if (!filters->is_array() || filters->as_array().size() > JournalTypes().size())
+                return Error(request, "invalid_filter", "event_types must be a bounded array of journal types");
+            for (auto const& value : filters->as_array())
+            {
+                if (!value.is_string() || !JournalTypes().contains(std::string(value.as_string())))
+                    return Error(request, "invalid_filter", "A journal event type is not supported");
+                selected.insert(std::string(value.as_string()));
+            }
+        }
+        if (auto maximum = request.if_contains("max_events"); maximum
+            && !maximum->is_int64() && !maximum->is_uint64())
+            return Error(request, "invalid_limit", "max_events must be an integer from 1 through 512");
+        double maximum = Number(request, "max_events", 128);
+        if (maximum < 1 || maximum > 512)
+            return Error(request, "invalid_limit", "max_events must be an integer from 1 through 512");
+        std::optional<JournalCursor> supplied;
+        if (auto since = request.if_contains("since"))
+        {
+            if (!since->is_string() || !(supplied = ParseJournalCursor(std::string(since->as_string()))))
+                return Error(request, "invalid_cursor", "since must be a 32-lowercase-hex epoch:decimal cursor");
+        }
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto found = _journals.find(name);
+        if (found == _journals.end())
+            return Error(request, "journal_unavailable", "No owned-character journal is available yet");
+        NativeJournal const& journal = found->second;
+        bool reset = supplied && supplied->epoch != _journalEpoch;
+        uint64 since = supplied ? (reset ? 0 : supplied->sequence) : journal.buffer.Newest();
+        if (supplied && !reset && since > journal.buffer.Newest())
+            return Error(request, "cursor_ahead", "Cursor is ahead of this character's journal");
+        auto page = journal.buffer.Read(since, std::size_t(maximum), [&selected](Json::object const& event)
+        {
+            return selected.empty() || selected.contains(Text(event, "type"));
+        });
+        Json::array events;
+        for (auto const& entry : page.events)
+            events.push_back(entry.value);
+        return Response(request, true, {{"schema", "native-event-journal/v1"}, {"epoch", _journalEpoch},
+            {"observer_guid", std::to_string(journal.observer.GetRawValue())},
+            {"cursor", _journalEpoch + ":" + std::to_string(page.cursor)}, {"events", std::move(events)},
+            {"oldest", _journalEpoch + ":" + std::to_string(journal.buffer.Oldest())},
+            {"newest", _journalEpoch + ":" + std::to_string(journal.buffer.Newest())},
+            {"has_more", page.hasMore}, {"gap", page.gap}, {"reset", reset}, {"baseline", !supplied},
+            {"lost_events", std::to_string(page.lost)}, {"previous_epoch_loss_unknown", reset},
+            {"dropped_total", std::to_string(journal.buffer.Dropped())},
+            {"excluded_addon_total", std::to_string(journal.excludedAddon)},
+            {"excluded_decode_error_total", std::to_string(journal.excludedDecodeError)},
+            {"sampling", Json::object{{"basic", "owned_world_update"}, {"details_interval_ms", 250},
+                {"damage", "net_health_drop_not_full_combat_log"}, {"scope", "owned_self_and_visible_party"},
+                {"party_baseline", "cleared_when_invisible"}}}});
+    }
+
+    void JournalAction(std::string const& name, std::string const& id, std::string const& type,
+        Json::object const& response)
+    {
+        auto actor = _actors.find(name);
+        if (actor == _actors.end())
+            return;
+        Player* player = actor->second->session->GetPlayer();
+        if (!player)
+            return;
+        bool ok = response.at("ok").as_bool();
+        auto field = response.if_contains("result");
+        Json::object result = field && field->is_object() ? field->as_object() : Json::object{};
+        std::string status = ok ? Text(result, "status") : (Text(result, "status") == "unknown" ? "unknown" : "failed");
+        if (status.empty())
+            status = ok ? "completed" : "failed";
+        Json::object facts{{"request_id", id}, {"action_type", type}, {"status", status}, {"ok", ok}};
+        if (std::string reference = Text(result, "request_id"); !reference.empty() && reference != id)
+            facts["referenced_request_id"] = reference;
+        if (auto error = response.if_contains("error"); error && error->is_object())
+            facts["error_code"] = Text(error->as_object(), "code");
+        if (std::string reason = Text(result, "reason"); !reason.empty())
+            facts["reason"] = reason.substr(0, 128);
+        for (char const* key : {"target_guid", "quest_id", "arrived", "partial", "copper", "skipped_slots",
+                               "reward_receipt", "tracking_quest_rewarded"})
+            if (auto value = result.if_contains(key); value && !value->is_object() && !value->is_array())
+                facts[key] = *value;
+        JournalAppend(player, "action_result", facts);
+        if (type == "loot" && ok && status == "completed")
+        {
+            if (auto items = result.if_contains("items"); items && items->is_array())
+                facts["items"] = *items;
+            JournalAppend(player, "loot_result", std::move(facts));
+        }
+    }
+
+    void JournalStateTransitions(Player* observer, Json::object const& before, Json::object const& after,
+        ObjectGuid actor, char const* source, uint32 interval)
+    {
+        if (before.empty())
+            return;
+        JournalActorDelta delta = CompareJournalActorStates(
+            {before.at("alive").as_bool(), before.at("combat").as_bool(), before.at("health").to_number<uint64>()},
+            {after.at("alive").as_bool(), after.at("combat").as_bool(), after.at("health").to_number<uint64>()});
+        Json::object facts{{"source", source}, {"sample_interval_ms", interval}};
+        if (delta.combatStarted || delta.combatEnded)
+        {
+            facts["in_combat"] = delta.combatStarted;
+            JournalAppend(observer, delta.combatStarted ? "combat_started" : "combat_ended", facts, actor);
+        }
+        if (delta.died || delta.resurrected)
+        {
+            facts["alive"] = delta.resurrected;
+            JournalAppend(observer, delta.died ? "death" : "resurrected", facts, actor);
+        }
+        if (delta.healthLoss)
+        {
+            facts["before_health"] = before.at("health");
+            facts["health"] = after.at("health");
+            facts["net_health_loss"] = delta.healthLoss;
+            facts["damage_semantics"] = "net_health_drop_not_full_combat_log";
+            JournalAppend(observer, "damage", std::move(facts), actor);
+        }
+    }
+
+    void SampleJournal(Actor& actor, Player* player)
+    {
+        Json::object basic{{"health", player->GetHealth()}, {"alive", player->IsAlive()},
+            {"combat", player->IsInCombat()}, {"map_id", player->GetMapId()},
+            {"zone_id", player->GetZoneId()}, {"area_id", player->GetAreaId()}};
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _journals[player->GetName()].observer = player->GetGUID();
+        }
+        if (!actor.journalBasic.empty())
+        {
+            JournalStateTransitions(player, actor.journalBasic, basic, player->GetGUID(),
+                "owned_world_update", 0);
+            if (actor.journalBasic.at("map_id") != basic.at("map_id")
+                || actor.journalBasic.at("zone_id") != basic.at("zone_id")
+                || actor.journalBasic.at("area_id") != basic.at("area_id"))
+                JournalAppend(player, "area_changed", {{"before_map_id", actor.journalBasic.at("map_id")},
+                    {"map_id", player->GetMapId()}, {"zone_id", player->GetZoneId()},
+                    {"area_id", player->GetAreaId()}});
+        }
+        actor.journalBasic = std::move(basic);
+        auto now = std::chrono::steady_clock::now();
+        if (now < actor.journalNextDetails)
+            return;
+        actor.journalNextDetails = now + std::chrono::milliseconds(250);
+        SampleJournalDetails(actor, player);
+    }
+
+    void SampleJournalDetails(Actor& actor, Player* player)
+    {
+        std::map<uint32, uint64> items;
+        auto itemCount = [&items](Item* item)
+        {
+            if (item)
+                items[item->GetEntry()] += item->GetCount();
+        };
+        for (uint8 slot = 0; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+            itemCount(player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+        for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+            if (Bag* container = player->GetBagByPos(bag))
+                for (uint32 slot = 0; slot < std::min(container->GetBagSize(), uint32(MAX_BAG_SIZE)); ++slot)
+                    itemCount(container->GetItemByPos(uint8(slot)));
+        if (actor.journalDetailsReady && items != actor.journalInventory)
+        {
+            Json::array changes;
+            std::set<uint32> identifiers;
+            for (auto const& [id, count] : items)
+                identifiers.insert(id);
+            for (auto const& [id, count] : actor.journalInventory)
+                identifiers.insert(id);
+            for (uint32 id : identifiers)
+            {
+                uint64 before = actor.journalInventory.contains(id) ? actor.journalInventory.at(id) : 0;
+                uint64 after = items.contains(id) ? items.at(id) : 0;
+                if (before != after)
+                    changes.emplace_back(Json::object{{"item_id", id}, {"before", before}, {"after", after}});
+            }
+            JournalAppend(player, "inventory_changed",
+                {{"changes", std::move(changes)}, {"source", "carried_item_counts"}});
+        }
+        actor.journalInventory = std::move(items);
+        std::map<uint32, Json::object> quests;
+        for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            if (uint32 id = player->GetQuestSlotQuestId(slot))
+            {
+                Json::array objectives;
+                Json::array questItems;
+                for (uint8 index = 0; index < QUEST_OBJECTIVES_COUNT; ++index)
+                    objectives.push_back(player->GetQuestSlotCounter(slot, index));
+                if (Quest const* quest = sObjectMgr->GetQuestTemplate(id))
+                    for (uint8 index = 0; index < QUEST_ITEM_OBJECTIVES_COUNT; ++index)
+                        if (quest->RequiredItemId[index])
+                            questItems.emplace_back(Json::object{{"item_id", quest->RequiredItemId[index]},
+                                {"current", player->GetItemCount(quest->RequiredItemId[index])},
+                                {"required", quest->RequiredItemCount[index]}});
+                quests[id] = {{"status", uint32(player->GetQuestStatus(id))},
+                    {"objectives", std::move(objectives)}, {"item_objectives", std::move(questItems)}};
+            }
+        if (actor.journalDetailsReady)
+        {
+            for (auto const& [id, facts] : quests)
+                if (!actor.journalQuests.contains(id) || actor.journalQuests.at(id) != facts)
+                    JournalAppend(player, "quest_changed", {{"quest_id", id},
+                        {"change", actor.journalQuests.contains(id) ? "updated" : "added"}, {"current", facts}});
+            for (auto const& [id, facts] : actor.journalQuests)
+                if (!quests.contains(id))
+                    JournalAppend(player, "quest_changed", {{"quest_id", id}, {"change", "removed"}});
+        }
+        actor.journalQuests = std::move(quests);
+        std::set<ObjectGuid> currentMembers;
+        if (Group* group = player->GetGroup())
+            for (auto const& member : group->GetMemberSlots())
+            {
+                if (member.guid == player->GetGUID() || currentMembers.size() == MAXRAIDSIZE)
+                    continue;
+                currentMembers.insert(member.guid);
+                Player* other = ObjectAccessor::FindPlayer(member.guid);
+                bool sameMap = other && other->IsInWorld() && other->GetMap() == player->GetMap();
+                bool visible = sameMap && player->HaveAtClient(other) && player->CanSeeOrDetect(other);
+                bool before = actor.journalParty.contains(member.guid) && actor.journalParty.at(member.guid);
+                float distance = visible ? player->GetDistance(other) : 0;
+                bool separated = !visible || (before ? distance > 25.0f : distance >= 30.0f);
+                if (actor.journalDetailsReady && actor.journalParty.contains(member.guid) && separated != before)
+                {
+                    Json::object facts{{"member_guid", std::to_string(member.guid.GetRawValue())},
+                        {"visible", visible}, {"same_map", sameMap}, {"separated", separated},
+                        {"separation_yards", 30}, {"recovery_yards", 25},
+                        {"reason", !sameMap ? "offline_or_different_map" : !visible ? "not_visible" : "distance"}};
+                    facts["distance"] = visible ? Json::value(distance) : Json::value(nullptr);
+                    JournalAppend(player, separated ? "party_separation" : "party_rejoined",
+                        std::move(facts), member.guid);
+                }
+                actor.journalParty[member.guid] = separated;
+                if (visible)
+                {
+                    Json::object state{{"health", other->GetHealth()}, {"alive", other->IsAlive()},
+                        {"combat", other->IsInCombat()}};
+                    if (auto previous = actor.journalPartyUnits.find(member.guid);
+                        previous != actor.journalPartyUnits.end())
+                        JournalStateTransitions(player, previous->second, state, member.guid,
+                            "visible_party_sample", 250);
+                    actor.journalPartyUnits[member.guid] = std::move(state);
+                }
+                else
+                    actor.journalPartyUnits.erase(member.guid); // No invented damage across invisible intervals.
+            }
+        for (auto it = actor.journalParty.begin(); it != actor.journalParty.end();)
+            if (!currentMembers.contains(it->first))
+            {
+                if (actor.journalDetailsReady && !it->second)
+                    JournalAppend(player, "party_separation", {{"member_guid", std::to_string(it->first.GetRawValue())},
+                        {"reason", "left_party"}, {"separated", true}}, it->first);
+                actor.journalPartyUnits.erase(it->first);
+                it = actor.journalParty.erase(it);
+            }
+            else
+                ++it;
+        actor.journalDetailsReady = true;
     }
 
     void Update()
@@ -735,12 +1052,16 @@ public:
                 ProcessQuestAbandonCommands(*actor, player);
                 UpdateProtection(*actor, player);
                 ProcessOpeningLoot(*actor, player);
+                if (player->IsInWorld())
+                    SampleJournal(*actor, player);
             }
             if (!actor->motionId.empty())
             {
                 if (player->GetDistance(actor->destination) < 1.0f)
                 {
                     Finish(actor->motionId, true, {{"status", "completed"}, {"arrived", true}});
+                    JournalAppend(player, "arrival", {{"request_id", actor->motionId},
+                        {"distance", player->GetDistance(actor->destination)}, {"source", "normal_motion_completion"}});
                     actor->motionId.clear();
                 }
                 else if (std::chrono::steady_clock::now() > actor->motionDeadline || !player->IsAlive())
@@ -1376,11 +1697,61 @@ public:
         Player* player = session->GetPlayer();
         if (!player || !session->IsHeadless())
             return;
+        Json::value recipient = nullptr;
+        if (auto value = event.if_contains("journal_recipient_guid"))
+        {
+            recipient = *value;
+            event.erase("journal_recipient_guid");
+        }
         event["timestamp"] = Timestamp();
         std::lock_guard<std::mutex> lock(_eventMutex);
         if (!_ownedSessions.contains(session))
             return;
         event["id"] = ++_eventSequence;
+        std::string type = Text(event, "type");
+        if (type == "chat" || type == "text_emote")
+        {
+            bool addon = false;
+            if (auto language = event.if_contains("language"); language && language->is_int64())
+                addon = language->as_int64() == -1 || language->as_int64() == 4294967295LL;
+            bool decodeError = false;
+            if (auto value = event.if_contains("decode_error"); value && value->is_bool())
+                decodeError = value->as_bool();
+            auto& journal = _journals[player->GetName()];
+            journal.observer = player->GetGUID();
+            if (addon)
+                ++journal.excludedAddon;
+            if (decodeError)
+                ++journal.excludedDecodeError;
+            if (!addon && !decodeError)
+            {
+                Json::object payload = event;
+                payload.erase("type");
+                payload.erase("timestamp");
+                payload.erase("id");
+                ObjectGuid sender(GuidNumber(event, type == "chat" ? "sender_guid" : "actor_guid"));
+                std::string observer = std::to_string(player->GetGUID().GetRawValue());
+                payload["direction"] = sender == player->GetGUID() ? "outgoing" : "incoming";
+                payload["actor_is_player"] = sender.IsPlayer();
+                if (type == "chat")
+                {
+                    payload["speaker"] = Text(event, "sender");
+                    payload["recipient_guid"] = recipient;
+                    payload["directed_at_self"] = recipient.is_string()
+                        ? Json::value(Text(payload, "recipient_guid") == observer)
+                        : Json::value(nullptr);
+                }
+                else
+                {
+                    auto target = event.if_contains("target_guid");
+                    payload["directed_at_self"] = target && target->is_string()
+                        && Text(event, "target_guid_source") == "normal_text_emote_hook"
+                        ? Json::value(Text(event, "target_guid") == observer)
+                        : Json::value(nullptr);
+                }
+                JournalAppendLocked(player, type, std::move(payload), sender);
+            }
+        }
         auto& queue = _events[player->GetGUID()];
         queue.push_back(std::move(event));
         if (queue.size() > 128)
@@ -2263,14 +2634,15 @@ private:
         return result;
     }
 
-    void Remember(std::string const& id, std::string const& encoded, Json::object const& response)
+    void Remember(std::string const& id, std::string const& encoded, Json::object const& response,
+        std::string const& actionType)
     {
         if (_requests.size() >= 512)
         {
             _requests.erase(_requestOrder.front());
             _requestOrder.pop_front();
         }
-        _requests.emplace(id, CachedRequest{encoded, response});
+        _requests.emplace(id, CachedRequest{encoded, response, actionType});
         _requestOrder.push_back(id);
     }
 
@@ -2284,6 +2656,9 @@ private:
         if (!ok)
             found->second.response["error"] = Json::object{
                 {"code", "action_failed"}, {"message", "See result for the operation failure"}};
+        if (Text(found->second.response, "op") == "action")
+            JournalAction(Text(found->second.response, "character"), id,
+                found->second.actionType, found->second.response);
     }
 
     int CreationResult(WorldSession* session)
@@ -4333,7 +4708,8 @@ private:
                 sCharacterCache->GetCharacterNameByGuid(sender, senderName);
             return {{"type", "chat"}, {"chat_type", type}, {"language", language},
                 {"sender_guid", std::to_string(sender.GetRawValue())}, {"sender", senderName},
-                {"text", message.substr(0, 1024)}, {"gm_message", source.GetOpcode() == SMSG_GM_MESSAGECHAT}};
+                {"text", message.substr(0, 1024)}, {"gm_message", source.GetOpcode() == SMSG_GM_MESSAGECHAT},
+                {"journal_recipient_guid", std::to_string(receiver.GetRawValue())}};
         }
         catch (std::exception const&)
         {
@@ -4370,6 +4746,15 @@ private:
     std::string _protectionFile;
     std::string _protectedCharacter = "Vesper";
     std::map<ObjectGuid, std::deque<Json::object>> _events;
+    std::map<std::string, NativeJournal> _journals;
+    std::string _journalEpoch = []
+    {
+        std::ostringstream result;
+        result << std::hex << std::setfill('0');
+        for (uint8 index = 0; index < 4; ++index)
+            result << std::setw(8) << urand(0, std::numeric_limits<uint32>::max());
+        return result.str();
+    }();
     std::map<ObjectGuid, GuardTelemetry> _guardTelemetry;
     uint64 _eventSequence = 0;
     uint64 _guardEventSequence = 0;

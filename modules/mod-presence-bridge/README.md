@@ -388,3 +388,66 @@ The module builds through the ordinary AzerothCore static module discovery and
 uses Boost.JSON from the existing Boost installation (its implementation is
 compiled once inside this translation unit). No external service or API key is
 needed for the bridge itself.
+
+
+## Native event journal
+
+The authenticated `events` operation reads a separate in-memory 512-event ring
+for an allowed, bridge-owned character. It does not alter `observe.events`, its
+legacy integer cursor, controller actions, or model attention/cooldowns.
+
+`since` is an optional opaque `32-lowercase-hex-epoch:decimal-sequence` string.
+Decimal sequences are canonical (`0` or a nonzero digit followed by digits),
+with the full uint64 range. Omit `since` to establish a **current baseline**:
+no historical events are returned. Use the returned epoch plus `:0` to inspect
+retained history. A server restart changes epoch; an old epoch returns
+`reset=true` and explicitly unknown previous-epoch loss. A future sequence in
+the same epoch is rejected instead of silently suppressing subsequent events.
+
+Optional `event_types` is an array drawn from `chat`, `text_emote`,
+`combat_started`, `combat_ended`, `damage`, `death`, `resurrected`, `area_changed`,
+`quest_changed`, `inventory_changed`, `party_separation`, `party_rejoined`,
+`arrival`, `action_result`, and `loot_result`. An omitted or empty filter selects
+all types. `max_events` is an integer from 1 through 512 (default 128). A filtered
+query advances over nonmatching entries too, so it cannot replay the same
+unmatched tail forever.
+
+Results have schema `native-event-journal/v1`, `epoch`, `observer_guid`, `cursor`,
+`events`, `oldest`, `newest`, `has_more`, `gap`, `reset`, `baseline`,
+`lost_events`, `previous_epoch_loss_unknown`, and `dropped_total`. Cursors are
+opaque strings; counts are decimal strings to preserve uint64 precision.
+`gap` and `lost_events` count exactly the journal entries evicted since the
+provided cursor, independently of filtering. `has_more` means another page
+remains. Never substitute a new baseline for a missing/invalid cursor silently.
+`excluded_addon_total` and `excluded_decode_error_total` are separate diagnostic
+counts, not hidden ring losses. The stream is not persisted across server restarts.
+
+Each event has `type`, timestamp, cursor, decimal-string sequence,
+`observer_guid`, `actor_guid`, and a factual `payload`. Delivered chat preserves
+packet sender/recipient GUIDs, speaker, language, type, and direction. Directed
+emotes require the existing reliable target-GUID correlation. No target or
+recipient is inferred from a name or current selection. Party/broadcast chat
+is observable conversation but is not a unit-directed message merely because
+it came from a particular speaker. Addon-language and malformed chat do not
+become conversation events.
+
+Owned self combat, health, life and area transitions are sampled after world
+updates. Visible party members' combat, health and life transitions, carried
+item counts and quest/objective counts are sampled at a nominal minimum 250ms
+interval. `damage` means **net observed health loss**, not a complete combat log
+or proof of attack intent; simultaneous healing or changes between samples
+can hide individual hits. Losing party visibility clears that member's baseline:
+no health loss is invented across an unseen interval. The response reports these
+origins and coverage limits under `sampling`.
+
+Party separation records loss of visibility/map or crossing 30 yards; reunion
+requires a visible member at 25 yards or closer. These are diagnostic thresholds,
+not movement/assist policies. `actor_guid` identifies the party member in their
+combat/life/health/separation events; `observer_guid` remains the owned character.
+
+`arrival` comes from actual bridge motion completion. `action_result` reports
+initial accepted/completed/failed responses and later asynchronous resolution
+under the original request ID. A referenced pending operation is identified
+separately rather than relabeled as a new successful action. `loot_result`
+requires the actual normal-handler stored-item/money receipt. Journal reads
+never open loot, complete quests, cast spells, or call a model.
