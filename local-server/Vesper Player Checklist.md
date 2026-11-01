@@ -34,9 +34,13 @@ models selected at those times; behavior still needs playtesting.
   old generations stay fenced. Remote hand-back is explicit, with no automatic expiry. Local stdio remains
   session-bound with disconnect cleanup; local operator recovery can require the exact observed generation.
 - [x] Bounded MCP event waits with per-character cursors, server epoch/history-gap reporting and a fresh snapshot on wake. No API model calls are needed for MCP inspection or waiting.
-- [ ] Playtest a complete MCP visit with Vesper: observe → take over → choose actions → wait on meaningful changes → inspect results → hand back. A conversation turn ending cannot itself signal hand-back.
+- [ ] Playtest a complete MCP visit with Vesper: observe → take over → choose actions → wait on meaningful
+  changes → inspect results → explicit `hand_back`. Verify ownership is released and the autonomous controller
+  resumes if it was running before takeover. A conversation turn ending cannot itself signal hand-back.
 - [x] Installed catch-up XP: Vesper receives 2× his normal award while below Aurenne's level, reverting to normal at equal/higher level. This is a local progression mechanic, not model quest competence.
 - [ ] Continue playtesting attention, stale-note invalidation, persistent goals and response latency across real encounters; fix misleading facts or missing controls before prescribing choices.
+- [ ] Expose bounded recent nonmovement failures with action/target/quest-phase identity, result code, age
+  and attempt count. Reconsider them when relevant fresh facts change; annotate choices without automatic retry bans.
 
 ## 1. Quest acceptance, readiness, turn-in and rewards — mechanics installed; needs playtest
 
@@ -204,8 +208,10 @@ is not proof that an item exists on this corpse.
   withdrawal, newer directions and protection still available to the planner.
 - [ ] Demonstrate timely awareness of Aurenne's actual outgoing attacks/casts, meaningful assistance, range/path recovery and sensible resource use. A selected target alone is not proof she attacked.
 - [ ] Evaluate combat choices in real fights without replacing his choices with a fixed rotation or automatic attack rule. A dedicated tank/healer role remains separate development.
-- [ ] Ground direct-heal targets and urgent self-care in explicit spell roles and recipient health. The November 1
-  bonfire incident included Holy Light aimed at a hostile, then full-health Aurenne while Vesper was critically hurt.
+- [ ] Ground ordinary offensive/healing spell choices in current target applicability, range, resources,
+  cooldown and protection facts; unknown checks remain unknown. Include recipient health and urgent self-care:
+  the November 1 bonfire incident included Holy Light aimed at a hostile, then full-health Aurenne while
+  Vesper was critically hurt.
 
 ## 11. Buff maintenance and situational utility — support facts installed; self/party application observed
 
