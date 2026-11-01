@@ -14,7 +14,10 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 - [x] One native Full controller with separate body and social lanes. Party activity, danger, separation and useful results can attract planner attention without forcing a particular response.
 - [x] Persistent follow, movement and melee execution between decisions; bounded action history and transient notes distinguish fresh facts from old proposals.
 - [x] Persistent Moon protection, protected-creature avoidance and attributable guard incident records. Low health does not authorize retaliation; see the command guide for release rules.
-- [x] Read-only MCP inspection of observations, controller status and recorded model context. Inspection does not make gameplay decisions.
+- [x] MCP inspection of full native observations, controller status and recorded model context, with exact complete request paging for newly captured calls.
+- [x] Session-bound MCP takeover, normal direct actions, action receipts and explicit hand-back to prior local controller intent; native Moon guard remains active.
+- [x] Bounded MCP event waits with per-character cursors, server epoch/history-gap reporting and a fresh snapshot on wake. No API model calls are needed for MCP inspection or waiting.
+- [ ] Playtest a complete MCP visit with Vesper: observe → take over → choose actions → wait on meaningful changes → inspect results → hand back. A conversation turn ending cannot itself signal hand-back.
 - [x] Installed catch-up XP: Vesper receives 2× his normal award while below Aurenne's level, reverting to normal at equal/higher level. This is a local progression mechanic, not model quest competence.
 - [ ] Continue playtesting attention, stale-note invalidation, persistent goals and response latency across real encounters; fix misleading facts or missing controls before prescribing choices.
 

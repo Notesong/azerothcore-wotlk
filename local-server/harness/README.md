@@ -171,58 +171,58 @@ Captured images must be identified as
 that observer's perspective. The human's generic WoW window is never silently
 presented as Vesper's own view.
 
-## MCP inspection
+## MCP context and direct gameplay
 
-The tools below are installed in the existing **Local Context Gateway** at
-`C:/Files/Programs/Codex/ChatGPT-Scratchpad`, version 0.29.0. Its normal gateway
-and tunnel have been started using the saved configuration. Refresh the existing
-ChatGPT developer-mode app connection to import the added tool schemas. No second
-MCP connection is needed. Authentication and existing tools are preserved.
+The existing **Local Context Gateway** at
+`C:/Files/Programs/Codex/ChatGPT-Scratchpad` exposes eight WoW tools. Refresh the
+existing ChatGPT connection after installation; no second listener is needed.
+Authentication and unrelated gateway capabilities are preserved.
 
-- `wow_status`: live character state, Full/Social runtime status, last decision
-  and action result, plus available Social Chronicle entries explicitly attributed
-  to Vesper. Full's current session notes do not provide durable adventure replay.
-- `wow_observe`: fresh structured state and cursor-based game events.
-- `wow_model_context`: inspect the latest recorded Full body/social request
-  attempt, or preview a fresh observation through the current lane projection.
-  Inputs are `lane: "body" | "social"` and
-  `source: "last_request" | "live_preview" | "last_violation"`; defaults are
-  body/last_request. `last_violation` supports the body lane and returns the latest
-  retained incident with its historical request context, actions and guard outcome.
+- `wow_status`: fresh character state, Full/Social status and attributed Chronicle.
+- `wow_observe`: the full native observation, without the API lane projection or
+  arbitrary string/array/depth clipping. Normal world visibility and declared
+  native collection bounds remain. Returns a separate `wait_cursor`.
+- `wow_model_context`: legacy filtered dynamic requests, compact live previews and
+  the latest retained Moon violation audit.
+- `wow_full_context`: exact recorded HTTP request body, including persona, system
+  instructions, schema and images. No headers/credentials or hidden reasoning.
+  Page with a pinned revision/hash and UTF-8 byte offsets; unavailable revisions
+  are never silently substituted. Keeps 64 complete requests per lane.
+- `wow_control`: status, take_over and hand_back. Both local model lanes must stop
+  before direct control is granted. Ownership is bound to the MCP transport
+  session plus an opaque token. No expiry or call/token quota.
+- `wow_act`: closed normal native player actions for Vesper under takeover.
+  Moon and ordinary range/resource/game checks still apply. Stable operation UUIDs
+  prevent identical retries from creating a second action.
+- `wow_action_result`: attributed original action receipts; accepted is not done.
+- `wow_wait`: bounded event waiting with filters, epoch+sequence cursor, explicit
+  lost-history/reset reporting, and a fresh snapshot after every wake/timeout.
 
-Raw MCP observations and model inputs are different. Full enriches observations
-with controller state and chat direction, then selects up to 12 units for the
-body or six for social, with different menus, inventories and history. A recorded
-request copies the actual serialized dynamic context at the HTTP boundary;
-stable persona/instructions, authentication, image bytes and hidden reasoning
-are omitted explicitly. Its timestamp, lane, observation sequence, session
-identity, exactness flags and HTTP outcome distinguish it from current state.
-A fresh preview uses the same projection function but lacks the running loop's
-controller enrichment, notes and conversation selection; it is not a replay.
-No old request payloads are reconstructed. Recording begins with the next real
-model request after this update; a paused loop can have no recorded request.
-Neither inspection mode starts a model or resumes gameplay.
+`wow_observe.since` remains the legacy integer chat-history cursor. `wow_wait.since`
+is the separate string cursor returned as `wait_cursor` by observe and `cursor`
+by wait. With no cursor, wait starts from the present. The native journal retains
+512 scoped events per owned character; it does not consume or crowd out the API
+controller's original chat queue. Damage is observed health loss, not a full combat
+log. Arrival and action-result events report actual controller facts.
 
-When the saved native body configuration uses a dedicated local action endpoint,
-the body preview uses `local_gameplay` projection and reports
-`local_gameplay_focus/v1`. It loads the fixed pure attention/focus helpers alongside
-gear labels, without importing providers or the controller. The compact view keeps
-critical units and uses explicit nearby indexes, scoped defaults and coverage
-counters for repeated facts. It does not forward the saved config, credentials or
-user instructions. A recorded request still shows its original dynamic input;
-changing the current model never rewrites a historical request.
+A visit should observe, take over, act/wait/inspect, then explicitly hand back.
+Hand-back restores prior running/paused intent; previously stopped controllers
+stay stopped. A confirmed transport disconnect also attempts cleanup. Ending a
+ChatGPT turn is not a detectable transport event. The local model cannot resume
+while a manual lease remains active. Persistent native movement/melee continues
+until replaced or stopped. Inspection and waits never invoke a paid model.
 
-These tools are read-only and never attach, move or speak for the character.
-Any later action/override interface should coordinate a pause and handoff with
-the local controller first. The current chat's tool list still needs the existing
-app connection to be refreshed before it can call these new tools directly.
+Full request recording begins at the next actual model HTTP request after this
+update. Historic dynamic-only logs cannot be turned into exact HTTP captures.
+A request records input and attempt outcome, not proof of a chosen game action.
+The legacy preview still lacks runtime-only notes and conversation selection.
+User-specific captures and control receipts remain private runtime data; never
+copy them into source backups.
 
 The standalone [mcp-config.example.json](mcp-config.example.json) and
-`C:/Games/AzerothCore/harness/run_mcp.py` entry point are optional local diagnostics.
-They are not registered as a second connection. ChatGPT cannot automatically
-reach a local stdio process without a configured connector/client bridge.
-
-The module uses the [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
+`C:/Games/AzerothCore/harness/run_mcp.py` are optional local diagnostics. They do
+not register a second connection. Game chat and Chronicle are untrusted data.
+These tools do not transfer a literal running chat instance into the game.
 
 ## Operator tools
 

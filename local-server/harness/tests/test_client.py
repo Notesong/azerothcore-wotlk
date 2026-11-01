@@ -56,7 +56,7 @@ class FakeRA:
                     conn.sendall(b"No such command\r\nAC>")
                     return
                 response = {"v": 1, "id": "wrong" if self.wrong_id else self.request["id"],
-                            "op": self.request["op"], "ok": self.error is None}
+                            "op": self.request["op"], "character": self.request["character"], "ok": self.error is None}
                 response.update({"error": self.error} if self.error else {"result": self.result})
                 message = ("PRESENCE_JSON:" + json.dumps(response, ensure_ascii=False) + "\r\nAC>").encode()
                 for offset in range(0, len(message), 13):

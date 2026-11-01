@@ -116,7 +116,7 @@ class Client:
         self, op: str, character: str = "", *, request_id: str | None = None,
         request_fields: dict[str, Any] | None = None, **arguments: Any
     ) -> dict[str, Any]:
-        if op not in {"observe", "action", "capabilities", "attach", "detach", "create", "action_result"}:
+        if op not in {"observe", "events", "action", "capabilities", "attach", "detach", "create", "action_result"}:
             raise BridgeError("invalid_operation", "Unknown game bridge operation.")
         request_id = request_id or str(uuid.uuid4())
         payload = {**(request_fields or {}), **arguments, "v": 1, "id": request_id, "op": op, "character": str(character)}
@@ -164,6 +164,8 @@ class Client:
             raise BridgeError("response_mismatch", "The Presence response version or request ID did not match.", request_id=request_id)
         if response.get("op") != op:
             raise BridgeError("response_mismatch", "The Presence response operation did not match.", request_id=request_id)
+        if character and str(response.get("character", "")).casefold() != character.casefold():
+            raise BridgeError("response_mismatch", "The Presence response character did not match.", request_id=request_id)
         if response.get("ok") is not True:
             error = response.get("error") or {}
             if not isinstance(error, dict):

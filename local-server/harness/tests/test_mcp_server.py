@@ -18,6 +18,10 @@ class FakeClient:
         self.observations = []
         self.failure = None
 
+    def request(self, op, character, **args):
+        if op != "events": raise AssertionError("Unexpected bridge operation")
+        return {"schema": "native-event-journal/v1", "cursor": "a"*32+":0", "events": []}
+
     def observe(self, character, after_event_id=0):
         self.observations.append((character, after_event_id))
         if self.failure:
@@ -56,15 +60,17 @@ class McpServerTests(unittest.TestCase):
     def write(self, filename, value):
         (self.data_dir / filename).write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
-    def test_initialize_negotiates_supported_version_and_lists_only_read_tools(self):
+    def test_initialize_negotiates_supported_version_and_lists_scoped_tools(self):
         response = initialize(self.server)
         self.assertEqual(response["result"]["protocolVersion"], PROTOCOL_VERSION)
         self.assertEqual(response["result"]["capabilities"], {"tools": {"listChanged": False}})
         tools = self.server.handle(request("tools/list"))["result"]["tools"]
-        self.assertEqual({tool["name"] for tool in tools}, {"wow_status", "wow_observe", "wow_model_context"})
+        self.assertEqual({tool["name"] for tool in tools}, {"wow_status", "wow_observe", "wow_model_context", "wow_full_context",
+            "wow_control", "wow_act", "wow_action_result", "wow_wait"})
         for tool in tools:
-            self.assertTrue(tool["annotations"]["readOnlyHint"])
-            self.assertFalse(tool["annotations"]["destructiveHint"])
+            mutation = tool["name"] in {"wow_control", "wow_act"}
+            self.assertEqual(tool["annotations"]["readOnlyHint"], not mutation)
+            self.assertEqual(tool["annotations"]["destructiveHint"], mutation)
             self.assertFalse(tool["inputSchema"]["additionalProperties"])
         self.assertEqual(self.client.observations, [])
 
@@ -181,6 +187,21 @@ class McpServerTests(unittest.TestCase):
                                                   "params": {"name": "wow_observe"}}))
         self.assertEqual(self.client.observations, [])
 
+    def test_stdio_eof_hands_back_a_manual_visit(self):
+        self.server.manual_attempted = True
+        with patch("presence_acore.mcp_server.dispatch_operation", return_value={}) as dispatch:
+            self.assertEqual(serve(self.server, BytesIO(), BytesIO()), 0)
+        self.assertEqual(dispatch.call_args.args[1], {
+            "operation": "session_closed", "owner_session": self.server.owner_session})
+
+    def test_wait_baseline_is_taken_before_live_snapshot(self):
+        order = []
+        request_fn, observe_fn = self.client.request, self.client.observe
+        self.client.request = lambda *a, **kw: order.append("baseline") or request_fn(*a, **kw)
+        self.client.observe = lambda *a, **kw: order.append("snapshot") or observe_fn(*a, **kw)
+        self.assertTrue(self.inspector.live()["available"])
+        self.assertEqual(order, ["baseline", "snapshot"])
+
     def test_stdio_is_only_newline_json_and_survives_bad_frames(self):
         messages = [request("initialize", {"protocolVersion": PROTOCOL_VERSION, "capabilities": {},
                      "clientInfo": {"name": "offline", "version": "1"}}),
@@ -209,14 +230,14 @@ class McpServerTests(unittest.TestCase):
                 self.assertEqual(serve(self.server, BytesIO(raw), outgoing), 1)
                 self.assertEqual(json.loads(outgoing.getvalue())["error"]["code"], -32700)
 
-    def test_output_bounds_and_recursive_secret_key_removal(self):
+    def test_full_output_preserved_with_recursive_secret_key_removal(self):
         self.client.observe = lambda *args, **kwargs: {
             "inventory": [{"name": "x" * 6000, "password": "DO-NOT-ECHO"}] * 150,
             "nested": {"authorization": "DO-NOT-ECHO", "public": "yes"},
         }
         result = self.inspector.live()["observation"]
-        self.assertEqual(len(result["inventory"]), 128)
-        self.assertEqual(len(result["inventory"][0]["name"]), 4096)
+        self.assertEqual(len(result["inventory"]), 150)
+        self.assertEqual(len(result["inventory"][0]["name"]), 6000)
         self.assertNotIn("DO-NOT-ECHO", json.dumps(result))
 
     def test_does_not_read_configs_or_follow_arbitrary_status_file_paths(self):

@@ -199,7 +199,7 @@ spending, dungeon Need/Greed/Pass choices, hearthstone/flight/bind actions, and
 death/corpse/resurrection recovery. Ordinary game-object interaction and known
 unit-targeted spell casting already exist, but do not cover every quest mechanic.
 
-## MCP inspection tools
+## MCP context and direct gameplay
 
 Vesper's body view now has shared readable stat labels and advisory gear guidance.
 For Paladin melee leveling, it favors usable weapon upgrades and Strength for
@@ -217,9 +217,12 @@ without a model call. `last_request` shows the original request that was recorde
 new guidance appears there after the next genuine body-model call.
 
 These are tool calls for Vesper's ChatGPT/MCP connection, not WoW chat commands.
-They use the existing **Local Context Gateway**, are read-only, and never start
-models, resume the controller, move Vesper or make him speak. Refresh that
-connection if a tool is missing.
+They use the existing **Local Context Gateway**. Refresh that connection if a
+tool is missing. Reading context never makes a model call. Direct actions require
+an explicit takeover, which stops both local model lanes first. Hand-back can
+restore controllers that were running before the visit; stopped ones stay stopped.
+MCP has no artificial model-call or token quota. Native game rules and Moon
+protection still apply.
 
 | Tool call | What it shows |
 | --- | --- |
@@ -230,10 +233,57 @@ connection if a tool is missing.
 | `wow_model_context({"lane":"body","source":"last_request"})` | Dynamic context recorded at the latest body-model request attempt. |
 | `wow_model_context({"lane":"social","source":"last_request"})` | Dynamic context recorded at the latest social-model request attempt. |
 | `wow_model_context({"lane":"body","source":"last_violation"})` | The latest retained Moon attempt/intervention, with its original body request context and action outcome. |
+| `wow_full_context({"lane":"social"})` | Complete recorded HTTP request: personality, instructions, dynamic input, schema, generation settings and any included image data. Authentication headers are never recorded. |
+| `wow_control({"action":"status"})` | Current manual-control ownership and hand-back status. |
+| `wow_control({"action":"take_over","operation_id":"<new UUID>"})` | Stop the local controllers and receive a session-bound control token for Vesper. |
+| `wow_act({"control_token":"<token>","operation_id":"<new UUID>","action":{"type":"follow","target_guid":"<observed GUID>","distance":1}})` | Choose a normal native action, using exact observed identities. |
+| `wow_action_result({"operation_id":"<action UUID>"})` | Check the actual result of an accepted action. |
+| `wow_wait({"since":"<wait cursor>","timeout_sec":20,"event_types":["combat_start","directed_chat","directed_emote"]})` | Wait for relevant changes, then receive a fresh snapshot. No model call. |
+| `wow_control({"action":"hand_back","control_token":"<token>","operation_id":"<new UUID>"})` | End the visit and restore the prior local controller intent. |
 
 `wow_status` optionally accepts `{"chronicle_limit":3}` (0–10; default 3).
 `wow_observe` optionally accepts `{"since":123}`; replace 123 with the event
 cursor returned by a previous observation to request newer events.
+That integer cursor belongs to the legacy observation history. For `wow_wait`,
+use the separate **`wait_cursor`** returned by `wow_observe`, then the `cursor`
+returned by each wait. It contains a server epoch and character sequence. Waits
+last at most 30 seconds; omission of `since` starts at the current journal baseline.
+History rollover and server restarts are reported explicitly. A returned event
+is a reason to inspect the fresh snapshot, not a complete account of current state.
+
+Wait filters also include `combat_stop`, `damage`, `death`, `party_separation`,
+`arrival`, `action_result`, `loot_change`, `quest_change`, `area_change`, and broad
+`chat`/`combat`. Damage entries are observed health deltas, not a complete combat
+log. Separation uses measured 30-yard departure and 25-yard reunion thresholds,
+plus map/visibility facts; those events do not prescribe what to do.
+
+For a large full request, keep the returned `revision` and `sha256` and request
+the next UTF-8 byte page using `offset: next_offset`. A rotated-away revision
+returns unavailable rather than switching to a different call. The archive keeps
+64 complete requests per lane; a stopped controller's old capture remains valid
+history. Old calls that were never fully captured cannot be recovered exactly.
+
+Reuse a mutation's UUID only when checking/retrying that **identical** operation.
+After a timeout, inspect its receipt before choosing another mutation. An accepted
+movement, spell or loot action is not proof of completion. Persistent movement and
+melee can continue locally between tool calls.
+
+Hand back before ending the visit. The server cannot infer that a ChatGPT turn
+ended. A known MCP transport disconnect also attempts hand-back; silence alone
+does not release control. `resume_previous:false` leaves prior controllers stopped.
+The Windows gateway restart shortcut can force-close its process, bypassing that
+cleanup. Hand back first. If a crash strands ownership, run this locally in
+PowerShell to release it while keeping the model runners stopped:
+
+```powershell
+$env:PYTHONPATH='C:\Games\AzerothCore\harness'
+& 'C:\Files\Programs\Codex\Presence\working\backend\.venv\Scripts\python.exe' -B -m presence_acore.mcp_control --recover --leave-stopped
+```
+
+Use `--resume-previous` instead only when you want the saved running/paused intent
+restored. This recovery command is local operator tooling, not an MCP action.
+The `chat` filter includes party conversation; `directed_chat` requires an actual
+packet recipient, and `directed_emote` requires an explicit incoming target GUID.
 `wow_model_context({})` defaults to body/last_request.
 `last_violation` supports the body lane only; an empty archive means no retained
 incident, not a new model call or a completed behavior test.
