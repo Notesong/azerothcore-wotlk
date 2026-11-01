@@ -116,7 +116,10 @@ The separate **VesperLoot** addon adds read-only corpse tooltip hints and a smal
 non-clickable panel. The server update and client package are installed, and the
 server build and restart are complete. The font-wrapping compatibility correction
 is installed; all 46 offline Lua 5.1 checks pass, including the absent optional API.
-Actual client display and replies have not yet been live-verified.
+After a full client restart on November 1, the addon appeared in the AddOns list.
+With Vesper in the party, the user confirmed a fresh Arcane Patroller's tooltip
+and panel showed loot information. This verifies basic live display and replies;
+detailed row states, group changes and range/expiry edges still need playtests.
 
 After the addon folder is installed, **fully exit and restart WoW**, then enable
 **Vesper Loot Hints** in the character-selection AddOns list. A newly added folder
@@ -145,8 +148,8 @@ offline Vesper shows unknown without sending whispers. No model call is made.
 
 The bridge reads actual generated loot and per-player state, not potential drops
 from a template. If generation or personal loot state cannot be confirmed, the
-answer remains unknown. A fresh normal kill and a completed pickup receipt are
-part of the pending live validation.
+answer remains unknown. Confirming each row state and its change after a completed
+Vesper pickup remains part of the pending live validation.
 
 ## Custom in-game commands
 
@@ -717,8 +720,9 @@ settings without a server restart.
 ## Models and attention
 
 Both body and social lanes now use **GPT-6 Luna** (`gpt-6-luna`), with reasoning
-set to `none`, as requested on November 1. The dated Qwen decisions and tests in
-this guide remain historical evidence from the model used at that time.
+set to `none`, as requested on November 1 and verified in actual requests from
+both lanes. The dated Qwen decisions and tests in this guide remain historical
+evidence from the model used at that time.
 
 The optional local **Qwen3.5-4B Q4_K_XL** launcher installed October 31 remains
 available, with alias `qwen3.5-4b-action` at `http://127.0.0.1:8082/v1` and thinking

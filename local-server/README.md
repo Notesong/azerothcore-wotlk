@@ -51,8 +51,8 @@ current projection; recorded requests and Moon incidents retain original inputs.
 See `Vesper Commands.md` for inspection and equipment guidance notes.
 
 Both controller lanes now use GPT-6 Luna (`gpt-6-luna`), with reasoning set to
-`none`, as requested November 1. Dated Qwen decisions and test results in these
-guides remain historical evidence.
+`none`, as requested November 1 and verified in actual requests from both lanes.
+Dated Qwen decisions and test results in these guides remain historical evidence.
 
 The October 31 local-body update adds an optional Qwen3.5-4B launcher on loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.
@@ -150,7 +150,10 @@ eligibility, adding native loot slots, issuing companion commands or calling a
 model. Its source and Lua 5.1 tests are included here. The server update and client
 package, including the font-wrapping compatibility correction, are installed.
 The native build and server restart passed. The 46 offline checks pass, including
-the absent optional font API; actual client display and server replies remain unverified.
+the absent optional font API. After a full client restart on November 1, the user
+confirmed the addon appeared in AddOns and a fresh Arcane Patroller's tooltip/panel
+showed loot information with Vesper in the party. Basic live display and replies
+are verified; detailed row-state changes and group/range/expiry edges remain pending.
 Fully exit and restart WoW after adding its new folder so the addon list is scanned.
 Usage and pending checks are in the Vesper guides and `addons/VesperLoot/README.md`.
 

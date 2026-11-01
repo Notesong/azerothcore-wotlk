@@ -10,7 +10,8 @@ Presence-controlled Blood Elf Paladin.
 For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For ordinary Playerbots, custom alts, dungeon companions and the addon, see [Bot Guide.md](Bot%20Guide.md). Their commands and automation do not automatically apply to Vesper.
 
 Both body and social lanes now use **GPT-6 Luna** (`gpt-6-luna`), with reasoning
-set to `none`. The dated Qwen receipts and replays below remain historical evidence.
+set to `none`, verified in actual requests from both lanes. The dated Qwen receipts
+and replays below remain historical evidence.
 
 ## Foundations already available
 
@@ -139,10 +140,12 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 **VesperLoot read-only hints:** the server update and client package are installed,
 and the native build and server restart are complete. The font-wrapping compatibility
 correction is installed and passes with that API absent; 46 offline Lua 5.1 checks
-pass in total. Actual client display and server replies have not yet been live-verified.
+pass in total. Basic live client display and server replies are now user-confirmed;
+detailed row-state changes and group/range/expiry edges remain awaiting playtests.
 
-- [ ] Fully restart the client after installing the new VesperLoot folder, enable
-  Vesper Loot Hints, and verify a visible corpse's tooltip and inspected-corpse panel.
+- [x] After a full client restart, Vesper Loot Hints appeared in the AddOns list.
+  With Vesper in the party, the user confirmed a fresh Arcane Patroller's tooltip
+  and inspected-corpse panel showed loot information on November 1.
 - [ ] Verify the current party leader receives Vesper's current item need and
   availability while Aurenne's own completed quota and pickup eligibility remain unchanged.
 - [ ] Verify actual generated per-player loot distinguishes available, not currently
