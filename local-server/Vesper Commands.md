@@ -24,13 +24,16 @@ receiving your gesture does not reset it or require a reply.
 
 These are social gestures, not fixed commands that order a particular reply.
 
-Autonomous speech and emotes belong to the social lane; the body lane chooses
-gameplay actions. Body decisions do not repeat your chat as Vesper's own speech.
-Direct MCP speech and emote controls remain available.
+Conversation and autonomous emotes belong to the social lane; the body lane
+chooses gameplay actions. The body-reporting update below also permits brief body
+reports supported by current gameplay evidence. Body output cannot repeat your
+chat as Vesper's own speech. Direct MCP speech and emote controls remain available.
 
-The upcoming body-reporting and source-chip update is **prepared, not installed**.
+The body-reporting and source-chip update is **installed**, and Full is running again.
 It permits occasional evidence-backed gameplay reports without adding model calls;
-conversation and emotes remain with Social. See [Vesper Voice.md](Vesper%20Voice.md).
+conversation and emotes remain with Social. Settings were preserved and MCP control
+was released. Client chips and natural reports still need a playtest.
+See [Vesper Voice.md](Vesper%20Voice.md).
 
 ## Quest-object pickup
 

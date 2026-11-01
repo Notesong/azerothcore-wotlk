@@ -1,7 +1,12 @@
 # Vesper voice and source chips
 
-November 1, 2026: **prepared, not installed**. Deployment requires the matching
-native bridge, local harness, private Presence controller and VesperVoice addon.
+November 1, 2026: **installed**. The matching native bridge, local harness, private
+Presence controller and VesperVoice addon were applied as a 17-file update.
+The world restarted cleanly; game and administration services are ready. Saved
+model settings and controller preferences were preserved. Full resumed with
+Vesper online and alive, and MCP control was released. The separate Social-only
+controller remains stopped; Full runs both model lanes. Client chips and natural
+body reports still need a playtest.
 
 Vesper keeps his ordinary speech. A small gray chip beside his player link shows
 the declared source: **Qwen**, **Luna** or **MCP**. Hovering shows the lane,

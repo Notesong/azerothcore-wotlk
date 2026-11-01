@@ -364,8 +364,9 @@ is not proof that an item exists on this corpse.
 ## 19. Conversation and real emotes — mechanics installed; needs playtest
 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
-- [x] Route autonomous speech/emotes through the social lane and mechanical choices through the body lane; body
-  output cannot echo the human's chat as Vesper's own line. Direct MCP speech/emote controls remain available.
+- [x] Route conversation and autonomous emotes through the social lane and mechanical choices through the body lane.
+  Body output cannot echo the human's chat as Vesper's own line. Direct MCP speech/emote controls remain available.
+  Optional evidence-backed body reports are installed below; model behavior still needs a playtest.
 - [x] Brief native interaction gestures accompany verified NPC/menu/quest progress and corpse-loot opening, without extra chat or persistent poses. Normal chest opening keeps its existing spell animation.
 - [x] Send ordinary named/targeted WoW emotes through the real emote channel, including hug, point, kiss and slap. Named gestures and custom prose are distinct; completion requires an actual normal-handler delivery receipt.
 - [x] Expose actor + emote + authoritative explicit target facts. Directed incoming player gestures can reach the social inbox once per event; unknown/untargeted gestures do not force a direct wake. Target identity is never guessed from a name.
@@ -375,8 +376,11 @@ is not proof that an item exists on this corpse.
 - [x] Normal-action QA verified dance state 10 → native `stop` → state 0 after deployment.
 - [ ] Verify follow after dancing with Aurenne online; she was offline immediately after this restart.
 - [ ] Playtest natural replies, greetings and downtime expression with cooldowns; avoid combat distraction, repeated lines and constant permission questions.
-- [ ] Deploy the prepared optional body reports and VesperVoice addon. Keep normal speech intact;
-  attach the actual runtime lane/provider/requested-model metadata outside the utterance.
+- [x] Install the optional body reports and VesperVoice addon files in the matching 17-file update.
+  Keep normal speech intact; attach runtime lane/provider/requested-model metadata outside the utterance.
+- [x] Verify the clean world restart and game/administration readiness, preserve saved settings, resume Full,
+  and release MCP control. Vesper was online and alive with Full running unpaused and no reported error.
+  The separate Social-only controller stays stopped because Full supplies both model lanes.
 - [ ] Playtest a verified completion report, a current blocker and human-reply priority, with no new model calls
   or repeated routine narration. Verify gray Qwen/Luna/MCP chips and hover details in the game client.
 

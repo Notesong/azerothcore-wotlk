@@ -4,7 +4,9 @@ WoW 3.3.5 addon source. It places a muted `[Qwen]`, `[Luna]`, or `[MCP]` chip be
 
 The addon is passive. It sends no chat, addon requests, commands, gameplay actions, or model calls. Normal message text, sender link, line ID, colors, access IDs, filters, and the sender's existing context menu are preserved. Standardized emotes and unsupported channels remain unlabeled.
 
-This source has not been installed into the live client. Installation consists of copying the `VesperVoice` folder into `Interface/AddOns`, then fully exiting and reopening WoW so the new addon is discovered. Later source updates can use `/reload`. The matching server metadata update must be present first. No metadata means normal unlabeled chat.
+Install by copying the `VesperVoice` folder into `Interface/AddOns`, then fully exit and reopen WoW so the new addon
+is discovered. Later Lua source updates can use `/reload`. The matching server metadata update must be present first.
+No metadata means normal unlabeled chat.
 
 ## Attribution contract
 
