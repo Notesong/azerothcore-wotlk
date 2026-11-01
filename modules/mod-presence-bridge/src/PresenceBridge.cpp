@@ -66,6 +66,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -391,6 +392,107 @@ std::optional<Json::object> BuffSpellFacts(Player* player, SpellInfo const* info
     if (!group.empty())
         facts["exclusive_group"] = std::move(group);
     return facts;
+}
+
+bool HealingSpellEffect(SpellInfo const* info)
+{
+    return std::any_of(info->GetEffects().begin(), info->GetEffects().end(),
+        [](SpellEffectInfo const& effect)
+        {
+            return effect.IsEffect(SPELL_EFFECT_HEAL) || effect.IsEffect(SPELL_EFFECT_HEAL_PCT)
+                || effect.IsEffect(SPELL_EFFECT_HEAL_MAX_HEALTH) || effect.IsAura(SPELL_AURA_PERIODIC_HEAL)
+                || effect.IsAura(SPELL_AURA_OBS_MOD_HEALTH);
+        });
+}
+
+std::string CombatSpellTargetMode(SpellInfo const* info)
+{
+    uint32 mask = info->GetExplicitTargetMask();
+    if (!mask)
+        return info->IsTargetingArea() ? "self_area" : "self";
+    if ((mask & TARGET_FLAG_UNIT_MASK) && !(mask & ~uint32(TARGET_FLAG_UNIT_MASK)))
+        return "unit";
+    return "other";
+}
+
+std::vector<Unit*> ObservedCombatTargets(Player* player, std::map<ObjectGuid, Unit*> const& observed)
+{
+    std::vector<Unit*> targets;
+    std::set<ObjectGuid> added;
+    auto add = [&targets, &added, &observed](ObjectGuid guid)
+    {
+        auto found = observed.find(guid);
+        if (found != observed.end() && added.insert(guid).second)
+            targets.push_back(found->second);
+    };
+    add(player->GetGUID());
+    Group* group = player->GetGroup();
+    if (group)
+        add(group->GetLeaderGUID());
+    if (Unit* victim = player->GetVictim())
+        add(victim->GetGUID());
+    // GUID order makes party references deterministic. Only units included in
+    // this observation can contribute targets; selection alone is not intent.
+    if (group)
+    {
+        for (auto const& [guid, member] : observed)
+        {
+            if (member == player || !member->IsPlayer() || !group->IsMember(guid))
+                continue;
+            if (Unit* victim = member->GetVictim())
+                add(victim->GetGUID());
+            for (uint32 slot = CURRENT_GENERIC_SPELL; slot < CURRENT_MAX_SPELL; ++slot)
+            {
+                Spell* spell = member->GetCurrentSpell(slot);
+                if (!spell || spell->getState() == SPELL_STATE_FINISHED)
+                    continue;
+                SpellInfo const* info = spell->GetSpellInfo();
+                if (info->IsPositive() || info->HasEffect(SPELL_EFFECT_TAMECREATURE))
+                    continue;
+                ObjectGuid target = spell->m_targets.GetUnitTargetGUID();
+                auto found = observed.find(target);
+                if (found != observed.end() && member->IsValidAttackTarget(found->second, info))
+                    add(target);
+            }
+        }
+        for (auto const& [guid, member] : observed)
+            if (member->IsPlayer() && group->IsMember(guid))
+                add(guid);
+    }
+    return targets;
+}
+
+Json::object CombatSpellFacts(Player* player, SpellInfo const* info, std::vector<Unit*> const& targets,
+    bool includeChecks)
+{
+    Json::array checks;
+    if (includeChecks)
+        for (Unit* target : targets)
+        {
+            if (checks.size() == 6)
+                break;
+            SpellCastResult explicitResult = info->CheckExplicitTarget(player, target);
+            SpellCastResult targetResult = info->CheckTarget(player, target, false);
+            checks.emplace_back(Json::object{{"target_guid", std::to_string(target->GetGUID().GetRawValue())},
+                {"explicit_target_ok", explicitResult == SPELL_CAST_OK}, {"target_ok", targetResult == SPELL_CAST_OK},
+                {"explicit_target_result", uint32(explicitResult)}, {"target_result", uint32(targetResult)},
+                {"base_range_min", player->GetSpellMinRangeForTarget(target, info)},
+                {"base_range_max", player->GetSpellMaxRangeForTarget(target, info)},
+                {"exact_range_ok", nullptr}, {"exact_castability", nullptr}});
+        }
+    uint32 included = uint32(checks.size());
+    // These are partial target predicates and unmodified template facts. Do not
+    // prepare a Spell or consume spell modifiers to predict normal cast success.
+    return Json::object{{"source", "known_spell_info"}, {"positive", info->IsPositive()},
+        {"healing_effect", HealingSpellEffect(info)}, {"target_mode", CombatSpellTargetMode(info)},
+        {"explicit_target_mask", info->GetExplicitTargetMask()}, {"known_active", player->HasActiveSpell(info->Id)},
+        {"power_type", int32(info->PowerType)}, {"base_cost", Json::object{{"flat", info->ManaCost},
+            {"percent_base_resource", info->ManaCostPercentage}, {"per_second", info->ManaPerSecond}}},
+        {"effective_cost", nullptr}, {"affordable", nullptr},
+        {"gcd_remaining_ms", player->GetGlobalCooldownMgr().GetGlobalCooldown(info)},
+        {"target_checks", std::move(checks)},
+        {"target_checks_coverage", Json::object{{"total", targets.size()}, {"included", included},
+            {"omitted", targets.size() - included}}}};
 }
 
 bool CarriedItem(Player const* player, Item const* item)
@@ -4482,6 +4584,7 @@ private:
         units.sort([player](Unit* a, Unit* b) { return player->GetDistance(a) < player->GetDistance(b); });
         Json::array nearby;
         std::set<ObjectGuid> seen;
+        std::map<ObjectGuid, Unit*> observedUnits{{player->GetGUID(), player}};
         for (Unit* unit : units)
         {
             if (!seen.insert(unit->GetGUID()).second)
@@ -4494,13 +4597,16 @@ private:
             state["hostile"] = player->IsHostileTo(unit);
             state["attackable"] = player->IsValidAttackTarget(unit);
             state["line_of_sight"] = player->IsWithinLOSInMap(unit);
+            state["within_melee_range"] = player->IsWithinMeleeRange(unit);
             state["lootable"] = unit->IsCreature() && player->isAllowedToLoot(unit->ToCreature());
             if (unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_QUESTGIVER) && !player->IsHostileTo(unit))
                 for (auto const& field : QuestRelations(player, unit))
                     state[field.key()] = field.value();
             nearby.push_back(std::move(state));
+            observedUnits.emplace(unit->GetGUID(), unit);
         }
         result["nearby_units"] = std::move(nearby);
+        std::vector<Unit*> combatTargets = ObservedCombatTargets(player, observedUnits);
         auto objectCheck = [player, radius](GameObject* object)
         {
             return player->IsWithinDistInMap(object, radius) && player->CanSeeOrDetect(object);
@@ -4638,6 +4744,7 @@ private:
         result["buyback"] = std::move(buyback);
         Json::array spells;
         Json::array cooldowns;
+        std::vector<SpellInfo const*> knownSpells;
         for (auto const& [id, learned] : player->GetSpellMap())
         {
             if (learned->State == PLAYERSPELL_REMOVED || !learned->Active || !player->HasSpell(id))
@@ -4645,12 +4752,30 @@ private:
             SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
             if (!info || info->IsPassive())
                 continue;
-            if (spells.size() == 256)
+            if (knownSpells.size() == 256)
                 break;
+            knownSpells.push_back(info);
+        }
+        std::set<uint32> checkedCombatSpells;
+        for (SpellInfo const* info : knownSpells)
+        {
+            bool healing = HealingSpellEffect(info);
+            std::string mode = CombatSpellTargetMode(info);
+            if (!player->HasActiveSpell(info->Id) || info->HasEffect(SPELL_EFFECT_DUEL)
+                || (info->IsPositive() && !healing) || (mode != "unit" && !(mode == "self" && healing)))
+                continue;
+            checkedCombatSpells.insert(info->Id);
+            if (checkedCombatSpells.size() > 32)
+                checkedCombatSpells.erase(std::prev(checkedCombatSpells.end()));
+        }
+        for (SpellInfo const* info : knownSpells)
+        {
+            uint32 id = info->Id;
             uint32 delay = player->GetSpellCooldownDelay(id);
             Json::object facts{{"id", id}, {"name", info->SpellName[0]}, {"cooldown_ms", delay}};
             if (auto buff = BuffSpellFacts(player, info))
                 facts["buff"] = std::move(*buff);
+            facts["combat"] = CombatSpellFacts(player, info, combatTargets, checkedCombatSpells.contains(id));
             spells.emplace_back(std::move(facts));
             if (delay)
                 cooldowns.push_back(Json::object{{"spell_id", id}, {"remaining_ms", delay}});
