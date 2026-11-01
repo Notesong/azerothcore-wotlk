@@ -164,8 +164,36 @@ equipment and item details appear in his structured view. Long menus have pages.
 
 He must reach the NPC normally. Purchases, training, repairs and equipment use
 ordinary money, inventory space, class/level requirements and the normal game
-handlers. These are available choices for Luna; they do not automatically sell
+handlers. These are available choices for the body planner; they do not automatically sell
 junk, spend money, train every spell or equip an item.
+
+The November 1 local service view links observed NPCs to approach/list actions,
+current available trainer offers to exact learning actions, and ordinary poor
+miscellaneous drops to a vendor or sale step. The junk list excludes held quest
+requirements even after their counters are full, plus equipment, bags, supplies
+and uncertain items. Other items still allow deliberate inspection and ordinary
+sale choices. A positive price or `usable=true` alone does not make an item junk.
+Opening a trainer list does not spend money; learning a chosen lesson does.
+
+In live autonomous play, Vesper sold **four junk stacks for 52 copper**, then
+learned **Devotion Aura, Judgement of Light and Blessing of Might** at Jesthenis
+Sunstriker. Normal receipts confirmed three new spells and **199 copper spent**
+(9 + 95 + 95). His money changed **905 → 957 → 758 copper**, leaving **7 silver
+58 copper** after training. These were model choices, without operator sale or
+training actions. Reliable future discovery and buyback recovery still need
+playtesting; he tried several wrong-class trainers before finding the right one.
+
+NPC trainer metadata is now installed. Names were already visible; nearby NPC
+rows can now also show their title and default trainer type, requirement and
+class. These facts reach bounded body/social views and the full MCP observation
+when the NPC is visible. No online-player roster is needed to identify NPC
+trainers. `class_matches_self` is an advisory comparison, not a promised lesson
+or forced action. Default-provider metadata does not establish current spell
+offers; the actual menu, requirements and normal handlers decide learning.
+
+The clean restart preserved his three learned spells and 758 copper. No trainer
+was in his post-restart observation, so seeing the new class/title fields in a
+real trainer encounter remains the next playtest.
 
 Lost transaction replies are marked uncertain. The controller checks the original
 request once, without resending the purchase; fresh inventory, money and learned

@@ -46,6 +46,7 @@
 #include "SpellMgr.h"
 #include "SpellAuras.h"
 #include "Trainer.h"
+#include "Util.h"
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -217,7 +218,7 @@ Json::object UnitState(Unit const* unit)
                 {"target_guid", std::to_string(spell->m_targets.GetUnitTargetGUID().GetRawValue())},
                 {"semantic_tame", info->HasEffect(SPELL_EFFECT_TAMECREATURE)}, {"effect_ids", std::move(effects)}});
         }
-    return {{"guid", std::to_string(unit->GetGUID().GetRawValue())}, {"name", unit->GetName()},
+    Json::object result{{"guid", std::to_string(unit->GetGUID().GetRawValue())}, {"name", unit->GetName()},
         {"entry", unit->GetEntry()}, {"position", PositionOf(unit)}, {"level", unit->GetLevel()},
         {"health", unit->GetHealth()}, {"max_health", unit->GetMaxHealth()},
         {"alive", unit->IsAlive()}, {"in_combat", unit->IsInCombat()},
@@ -230,6 +231,34 @@ Json::object UnitState(Unit const* unit)
         {"channel_spell_id", unit->GetUInt32Value(UNIT_CHANNEL_SPELL)},
         {"channel_target_guid", std::to_string(unit->GetGuidValue(UNIT_FIELD_CHANNEL_OBJECT).GetRawValue())},
         {"current_spells", std::move(casts)}};
+    if (Creature const* creature = unit->ToCreature())
+    {
+        if (CreatureTemplate const* info = creature->GetCreatureTemplate())
+        {
+            std::string title = info->SubName;
+            utf8truncate(title, 128);
+            result["title"] = std::move(title);
+        }
+        if (trainer)
+        {
+            result["trainer_type"] = nullptr;
+            result["trainer_requirement"] = nullptr;
+            result["trainer_class"] = nullptr;
+            result["trainer_metadata_source"] = nullptr;
+            // These identify the normal default provider, not its current spell offers.
+            if (Trainer::Trainer const* provider = sObjectMgr->GetTrainer(creature->GetEntry()))
+            {
+                Trainer::Type type = provider->GetTrainerType();
+                uint32 requirement = provider->GetTrainerRequirement();
+                result["trainer_type"] = static_cast<uint32>(type);
+                result["trainer_requirement"] = requirement;
+                result["trainer_metadata_source"] = "creature_default_trainer";
+                if (type == Trainer::Type::Class && requirement > 0 && requirement < MAX_CLASSES)
+                    result["trainer_class"] = requirement;
+            }
+        }
+    }
+    return result;
 }
 
 bool CarriedItem(Player const* player, Item const* item)

@@ -81,12 +81,27 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 - [x] Inspect paged offers, buy, sell chosen carried items, repair and use the vendor's actual buyback list.
 - [x] Recover an uncertain transaction through its original request identity and fresh state instead of automatically resending it.
-- [ ] Demonstrate affordable upkeep and considered junk sales while preserving useful gear, bags, supplies and quest items; recover a mistaken sale while buyback is available.
+- [x] Ground service approach/list actions and conservative miscellaneous-junk sale choices in current NPC/item facts.
+  Preserve held quest requirements even when collected, plus gear, bags, supplies and uncertain items.
+- [x] Verified four autonomous junk-stack sales through normal receipts, totaling 52 copper; money rose 905 → 957.
+- [ ] Continue verifying affordable upkeep and preservation across other inventory; recover a mistaken sale while
+  buyback is available. A successful sale is not proof of good judgment for every item.
 
 ## 8. Training and talents — training installed; talents not built
 
 - [x] Inspect trainer offers/requirements and learn a chosen offered spell with normal costs and prerequisites.
-- [ ] Demonstrate finding and visiting the right trainer, choosing affordable training and verifying newly known spells.
+- [x] Ground currently available, affordable trainer rows in exact `train_spell` actions. State 0 means available,
+  1 unavailable and 2 known; opening the list does not purchase anything.
+- [x] Verified autonomous training at Jesthenis Sunstriker: Devotion Aura (465, 9 copper), Judgement of Light
+  (learned 20271 from offer 10321, 95 copper), and Blessing of Might (19740, 95 copper). Three normal completion
+  receipts confirmed new known spells and 199 copper spent; money fell 957 → 758 copper (7 silver 58 copper).
+- [x] Install nearby NPC titles and default-trainer type/requirement/class metadata in the native observation,
+  retained in bounded body/social views and full MCP context. `class_matches_self` is advisory; default-provider
+  metadata is distinct from current offers and does not force actions. No online-player list is required.
+- [x] Verified the clean restart preserved 758 copper and known spells 465, 19740 and 20271.
+- [ ] Verify reliable trainer discovery without repeated wrong-class attempts, and useful future lesson/budget choices.
+- [ ] Observe the new native trainer class/title fields during the next real trainer encounter. No trainer NPC
+  was in the post-restart observation; deployment alone is not a packet-level encounter verification.
 - [ ] Expose talent points, trees and prerequisites; add intentional talent spending and verification. Ordinary bots' talent presets are not Vesper's talent controls.
 
 ## 9. Loot, rolls and confirmations — basic looting installed; remainder incomplete
@@ -195,6 +210,17 @@ decisions equipped Shoddy Chain Pants (+35 base armor) and Shoddy Chain Belt
 Green Chain Boots remained equipped. Dance → native stop QA reset stored pose
 10 → 0; following after dancing awaits a check with Aurenne online. Stable
 future gear selection and reliable combat assistance remain behavior playtests.
+
+Service grounding then produced four autonomous junk-stack sales for 52 copper
+and three normal training receipts for Devotion Aura, Judgement of Light and
+Blessing of Might, costing 199 copper. Funds changed 905 → 957 → 758 copper.
+The correct trainer was eventually reached after wrong-class attempts; consistent
+trainer discovery and buyback recovery remain open. Trainer metadata is now
+installed in the core and body/social projections, with full MCP access when
+NPCs are visible. The clean restart preserved 758 copper and the three learned
+spells. No trainer was in the post-restart observation, so actual class/title
+packet verification awaits the next encounter; current offers remain separate
+from default-provider metadata.
 
 Earlier October 31 pickup verification used worldserver `e009657c1083`, with
 emotes and catch-up XP retained. Pickup work passed 61 isolated native checks,
