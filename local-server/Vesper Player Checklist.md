@@ -41,6 +41,13 @@ models selected at those times; behavior still needs playtesting.
 ## 1. Quest acceptance, readiness, turn-in and rewards — mechanics installed; needs playtest
 
 - [x] Query an observed offer, accept an eligible quest, recognize explicit quest status/readiness, and open the correct observed NPC's normal turn-in dialog.
+- [x] November 1 direct MCP acceptance of Swift Discipline (9066) at Instructor Antheol:
+  the normal receipt and fresh log confirmed acceptance; fresh inventory verified one
+  Antheol's Disciplinary Rod (22473).
+- [x] Install grounded NPC offer choices: current menu → `quest_query`, then fresh enabled details →
+  `quest_accept`. The correction passes 2,350 offline game-player checks. An unheld quest's item-check
+  page is not a turn-in opportunity.
+- [ ] Playtest autonomous acceptance of a future offered NPC quest; direct MCP acceptance does not verify this choice.
 - [x] Advance request-items → offer-reward, compare advertised rewards and choose the exact reward index. A dialog-opening receipt is distinct from receiving a reward.
 - [x] Ground local ready-quest candidates in currently observed questgivers, normal approach and the exact current menu/dialog step. A frozen Qwen 4B test selected the correct quest-complete action instead of reopening the NPC; reward options remain model choices.
 - [x] Verified a live autonomous hand-in of Thirst Unending at Arcanist Helion: `quest_complete` opened the reward dialog, then `quest_reward` selected the Green Chain Gauntlets; the server confirmed the reward receipt and removal from the quest log.
@@ -74,6 +81,7 @@ models selected at those times; behavior still needs playtesting.
   and five during autonomous play. This verifies the collected objective, not turn-in or reward; individual
   receipts were retained for the two examples above. Arcane Cores were 1/6 and the Head of Thaelis 0/1.
 - [ ] Add generic carried-item use, including quest items with the required unit/object/location target and normal cooldown/consumption checks.
+  Swift Discipline showed Ralen 1/1 and Meledor 0/1 on November 1; shared credit does not verify Vesper used the rod.
 - [ ] Demonstrate quest-specific reasoning: choose a relevant object or spell, such as Arcane Torrent when a quest actually calls for it, using the observed learned spell and objective rather than an invented ability or target.
 - [ ] Cover quest mechanics that need ground targeting, item targeting or other controls beyond the current unit-cast/object-interaction actions.
 

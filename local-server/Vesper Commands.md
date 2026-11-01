@@ -366,6 +366,26 @@ WoW slash commands. Normal quest handlers still check eligibility, objectives,
 required items, money and inventory capacity. Querying a quest can trigger the
 game's ordinary auto-accept behavior, so it is not a read-only MCP operation.
 
+### NPC quest acceptance
+
+For a new NPC quest, `interact` opens a fresh menu, `quest_query` reads the exact
+offered quest, and `quest_accept` accepts it when matching fresh details enable
+acceptance. A `both` relation does not mean the quest is already held. An unheld
+quest's `request_items` page needs a query, not another completion/reward attempt.
+If the menu is stale, use `interact` to refresh it before querying.
+
+On November 1, direct MCP control accepted **Swift Discipline (9066)** from
+Instructor Antheol. The normal receipt and fresh quest log confirmed acceptance;
+fresh inventory contained one **Antheol's Disciplinary Rod (22473)**.
+
+The planner correction is installed, with 2,350 offline game-player checks passing.
+It supplies exact current query/accept choices across body providers while leaving
+the choice to Vesper. An autonomous offered-quest playtest is still pending.
+Targeted use of the granted quest item remains on the development checklist.
+The November 1 observation showed Ralen 1/1 and Meledor 0/1; normal group credit
+can advance these objectives without Vesper using the rod. `cast` requires a
+learned spell and does not activate carried items.
+
 ### Quest-starting carried items
 
 A carried item's `start_quest` facts identify its offered quest and current
