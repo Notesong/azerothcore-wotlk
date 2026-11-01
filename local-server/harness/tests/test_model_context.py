@@ -321,7 +321,11 @@ def stamp(number):
             return original(name, globals, locals, fromlist, level)
 
         for name, level in (("tools.game_player_native_gear_extra", 0), ("tools", 0),
-                            ("tools.game_player_native_gear", 1)):
+                            ("tools.game_player_native_gear", 1),
+                            ("tools.game_player_native_buffs_extra", 0),
+                            ("tools.game_player_native_quest_items_extra", 0),
+                            ("tools.game_player_native_buffs", 1),
+                            ("tools.game_player_native_quest_items", 1)):
             with self.subTest(name=name, level=level):
                 self.context.write_text(
                     f"__import__({name!r}, globals(), locals(), ('stamp',), {level})\n", encoding="utf-8",
@@ -330,6 +334,66 @@ def stamp(number):
                     with self.assertRaises(ImportError):
                         _projection(self.root)
                 self.assertEqual(delegated[-1], (name, level))
+
+    def test_fixed_buff_and_quest_helpers_are_lazy_cached_and_private(self):
+        for helper in ("game_player_native_buffs", "game_player_native_quest_items"):
+            with self.subTest(helper=helper):
+                path = self.tools / (helper + ".py")
+                path.write_text("from math import sqrt\ndef stamp(value): return sqrt(value)\n", encoding="utf-8")
+                self.context.write_text(
+                    "def compact_native_observation(value, mode='gameplay'):\n"
+                    f"    from tools.{helper} import stamp\n"
+                    "    return {'number': stamp(value['number'])}\n", encoding="utf-8")
+                original_open, original_import = Path.open, builtins.__import__
+                opened, before_path, before_modules = [], list(sys.path), set(sys.modules)
+
+                def track(path, *args, **kwargs):
+                    opened.append(path.name)
+                    return original_open(path, *args, **kwargs)
+
+                def deny_tools(name, globals=None, locals=None, fromlist=(), level=0):
+                    if name == 'tools' or name.startswith(('tools.', 'app.', 'openai', 'anthropic')):
+                        raise AssertionError('Runtime imports are forbidden')
+                    return original_import(name, globals, locals, fromlist, level)
+
+                with patch.object(Path, 'open', track), patch.object(builtins, '__import__', deny_tools):
+                    projection = _projection(self.root)
+                    self.assertEqual(opened, ['game_player_native_context.py'])
+                    self.assertEqual(projection({'number': 25}), {'number': 5.0})
+                    self.assertEqual(projection({'number': 36}), {'number': 6.0})
+                    self.assertEqual(opened.count(path.name), 1)
+                self.assertEqual(sys.path, before_path)
+                self.assertFalse(any(name.startswith(('tools.', 'presence_readonly_', 'openai', 'anthropic'))
+                    for name in set(sys.modules) - before_modules))
+                self.assertFalse(list(self.root.rglob('__pycache__')))
+
+    def test_current_installed_projection_uses_only_fixed_pure_helpers(self):
+        source = Path('C:/Files/Programs/Codex/Presence/working/backend/tools')
+        names = ['game_player_native_' + suffix + '.py'
+            for suffix in ('context', 'gear', 'attention', 'focus', 'buffs', 'quest_items')]
+        if not all((source / name).is_file() for name in names):
+            self.skipTest('Current Presence pure projections are not installed')
+        for name in names:
+            (self.tools / name).write_bytes((source / name).read_bytes())
+        original_import, before_path, before_modules = builtins.__import__, list(sys.path), set(sys.modules)
+
+        def deny_runtime(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == 'tools' or name.startswith(('tools.', 'app.', 'openai', 'anthropic')):
+                raise AssertionError('Runtime imports are forbidden')
+            return original_import(name, globals, locals, fromlist, level)
+
+        observation = {'self': {'guid': '42', 'name': 'Vesper', 'class': 2, 'level': 12},
+            'inventory': [], 'equipment': [], 'nearby_units': [], 'quests': [], 'known_spells': []}
+        before = deepcopy(observation)
+        with patch.object(builtins, '__import__', deny_runtime):
+            projection = _projection(self.root)
+            self.assertIsInstance(projection(observation, 'gameplay'), dict)
+            self.assertIsInstance(projection(observation, 'social'), dict)
+        self.assertEqual(observation, before)
+        self.assertEqual(sys.path, before_path)
+        self.assertFalse(any(name.startswith(('tools.', 'presence_readonly_', 'openai', 'anthropic'))
+            for name in set(sys.modules) - before_modules))
+        self.assertFalse(list(self.root.rglob('__pycache__')))
 
     def test_missing_or_oversize_helper_fails_closed_before_observation_without_echo(self):
         for kind in ("missing", "oversize"):

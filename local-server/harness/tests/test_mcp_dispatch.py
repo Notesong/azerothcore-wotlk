@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from presence_acore.mcp_server import Inspector, Server, dispatch_operation
+from presence_acore.mcp_server import Inspector, Server, dispatch_operation, gateway_dispatch
 
 
 class DispatchTests(unittest.TestCase):
@@ -43,6 +43,36 @@ class DispatchTests(unittest.TestCase):
             "name": "wow_control", "arguments": {"action": "status", "owner_session": "pretend"}}})
         self.assertEqual(value["error"]["code"], -32602)
         self.assertNotIn("recover", str(server.tools()))
+
+    def test_fixed_gateway_only_selects_capability_mode_for_remote_control_and_actions(self):
+        manager = Mock()
+        manager.status.return_value = {"character": "Vesper", "state": "active"}
+        for mode_field in ({}, {"authorization_mode": "lease_token"}):
+            with patch("presence_acore.mcp_server.Inspector", return_value=self.inspector), \
+                    patch("presence_acore.mcp_control.default_manager", return_value=manager) as factory:
+                gateway_dispatch({"operation": "control", "action": "status", "owner_session": "sdk-session",
+                    "control_token": "b" * 64, **mode_field})
+                factory.assert_called_once_with(self.inspector.client, authorization_mode="lease_token")
+                manager.status.assert_called_with(owner_session="sdk-session", control_token="b" * 64)
+
+    def test_public_dispatch_and_stdio_cannot_request_capability_mode(self):
+        request = {"operation": "control", "action": "status", "authorization_mode": "lease_token"}
+        with patch("presence_acore.mcp_control.default_manager") as factory:
+            self.assertIn("error", dispatch_operation(self.inspector, request))
+            factory.assert_not_called()
+        server = Server(self.inspector)
+        server.initialized = server.ready = True
+        value = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "wow_control", "arguments": {"action": "status", "authorization_mode": "lease_token"}}})
+        self.assertEqual(value["error"]["code"], -32602)
+
+    def test_gateway_rejects_unexpected_internal_mode_and_mode_on_reads(self):
+        with patch("presence_acore.mcp_control.default_manager") as factory:
+            for request in ({"operation": "control", "action": "status", "authorization_mode": "sdk_session"},
+                            {"operation": "control", "action": "status", "authorization_mode": None},
+                            {"operation": "observe", "authorization_mode": "lease_token"}):
+                self.assertIn("error", gateway_dispatch(request))
+            factory.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()

@@ -268,7 +268,8 @@ def _additional_tools() -> list[dict[str, Any]]:
     ]
 
 
-def dispatch_operation(inspector: Inspector, request: dict[str, Any]) -> dict[str, Any]:
+def dispatch_operation(inspector: Inspector, request: dict[str, Any], *,
+                       authorization_mode: str = 'sdk_session') -> dict[str, Any]:
     """Fixed operations only; the gateway supplies session affinity out of band."""
     op = request.get("operation")
     allowed = {
@@ -299,13 +300,15 @@ def dispatch_operation(inspector: Inspector, request: dict[str, Any]) -> dict[st
     if inspector.character != "Vesper":
         return error
     from .mcp_control import default_manager
-    manager = default_manager(inspector.client)
+    manager = (default_manager(inspector.client, authorization_mode=authorization_mode)
+        if authorization_mode != 'sdk_session' else default_manager(inspector.client))
     owner = request.get("owner_session", "")
     if op == "control":
         if args.get("action") not in {"status", "take_over", "hand_back"}:
             return error
         if args["action"] == "status":
-            return manager.status(owner_session=owner or None)
+            return manager.status(owner_session=owner or None, **(
+                {"control_token": args["control_token"]} if "control_token" in args else {}))
         result = manager.control(owner_session=owner, **args)
         if args["action"] == "take_over" and result.get("available") is True:
             result = {**result, "snapshot": inspector.live()}
@@ -322,7 +325,14 @@ def gateway_dispatch(request: dict[str, Any]) -> dict[str, Any]:
     try:
         if not isinstance(request, dict):
             raise ValueError("invalid_arguments")
-        return dispatch_operation(Inspector(Client({"timeout": 5})), request)
+        request = dict(request)
+        has_mode = "authorization_mode" in request
+        mode = request.pop("authorization_mode", None)
+        remote_control = request.get("operation") in {"control", "act"}
+        if has_mode and (mode != "lease_token" or not remote_control):
+            raise ValueError("invalid_arguments")
+        return dispatch_operation(Inspector(Client({"timeout": 5})), request,
+            authorization_mode="lease_token" if remote_control else "sdk_session")
     except Exception as exc:
         # No exception message can echo credentials, persona or a raw local path.
         code = getattr(exc, "code", "operation_failed")

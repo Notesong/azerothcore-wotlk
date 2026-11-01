@@ -75,7 +75,8 @@ def take(setup, owner='sdk-owner'):
 def test_status_is_read_only_without_storage_or_provider_calls(setup):
     manager, runtime, client = setup
     assert manager.control(action='status') == {'available': True, 'character': 'Vesper',
-        'state': 'released', 'generation': 0, 'owned_by_session': False}
+        'state': 'released', 'generation': 0, 'control_mode': 'sdk_session',
+        'owned_by_session': False, 'owned_by_control_token': False}
     assert not manager.receipt_root.exists() and not manager.control_path.exists()
     assert runtime.calls == client.calls == []
 

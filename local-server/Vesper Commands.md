@@ -423,8 +423,9 @@ protection still apply.
 | `wow_model_context({"lane":"social","source":"last_request"})` | Dynamic context recorded at the latest social-model request attempt. |
 | `wow_model_context({"lane":"body","source":"last_violation"})` | The latest retained Moon attempt/intervention, with its original body request context and action outcome. |
 | `wow_full_context({"lane":"social"})` | Complete recorded HTTP request: personality, instructions, dynamic input, schema, generation settings and any included image data. Authentication headers are never recorded. |
-| `wow_control({"action":"status"})` | Current manual-control ownership and hand-back status. |
-| `wow_control({"action":"take_over","operation_id":"<new UUID>"})` | Stop the local controllers and receive a session-bound control token for Vesper. |
+| `wow_control({"action":"status"})` | Current manual-control generation and hand-back status; this alone does not prove ownership. |
+| `wow_control({"action":"status","control_token":"<exact takeover token>"})` | Check `owned_by_control_token` for the active remote lease. |
+| `wow_control({"action":"take_over","operation_id":"<new UUID>"})` | Stop the local controllers and receive the secret control token and generation for Vesper. |
 | `wow_act({"control_token":"<token>","operation_id":"<new UUID>","action":{"type":"follow","target_guid":"<observed GUID>","distance":1}})` | Choose a normal native action, using exact observed identities. |
 | `wow_action_result({"operation_id":"<action UUID>"})` | Check the actual result of an accepted action. |
 | `wow_wait({"since":"<wait cursor>","timeout_sec":20,"event_types":["combat_start","directed_chat","directed_emote"]})` | Wait for relevant changes, then receive a fresh snapshot. No model call. |
@@ -457,20 +458,33 @@ After a timeout, inspect its receipt before choosing another mutation. An accept
 movement, spell or loot action is not proof of completion. Persistent movement and
 melee can continue locally between tool calls.
 
-Hand back before ending the visit. The server cannot infer that a ChatGPT turn
-ended. A known MCP transport disconnect also attempts hand-back; silence alone
-does not release control. `resume_previous:false` leaves prior controllers stopped.
-The Windows gateway restart shortcut can force-close its process, bypassing that
-cleanup. Hand back first. If a crash strands ownership, run this locally in
-PowerShell to release it while keeping the model runners stopped:
+The November 1 remote-ownership correction is installed and verified;
+the live result is recorded below. Its remote lease belongs
+to the exact secret takeover token and generation. SDK connection/session changes
+do not transfer that identity. Send the token with `wow_act` and `hand_back`, and
+prove current ownership with token-bearing status: `owned_by_control_token` must
+be true. Public status, a session ID or an operation UUID is not ownership proof.
+Do not publish the token in notes or logs. Old tokens and retries cannot affect
+a later generation.
+
+Hand back explicitly before ending the visit. The server cannot infer that a
+ChatGPT turn ended. Closing or replacing the remote MCP transport alone does
+not revoke its lease; it has no automatic expiry. Optional local stdio diagnostic
+sessions retain strict session-bound ownership and disconnect cleanup.
+`resume_previous:false` leaves prior controllers stopped.
+
+If a crash strands ownership, inspect status, then run this locally in PowerShell
+to release only the generation you just checked, keeping the model runners
+stopped. Replace `<observed generation>` with its integer value:
 
 ```powershell
 $env:PYTHONPATH='C:\Games\AzerothCore\harness'
-& 'C:\Files\Programs\Codex\Presence\working\backend\.venv\Scripts\python.exe' -B -m presence_acore.mcp_control --recover --leave-stopped
+& 'C:\Files\Programs\Codex\Presence\working\backend\.venv\Scripts\python.exe' -B -m presence_acore.mcp_control --recover --expected-generation <observed generation> --leave-stopped
 ```
 
 Use `--resume-previous` instead only when you want the saved running/paused intent
-restored. This recovery command is local operator tooling, not an MCP action.
+restored. A changed generation makes this recovery fail without releasing the
+new owner. This recovery command is local operator tooling, not an MCP action.
 The `chat` filter includes party conversation; `directed_chat` requires an actual
 packet recipient, and `directed_emote` requires an explicit incoming target GUID.
 `wow_model_context({})` defaults to body/last_request.
@@ -483,6 +497,35 @@ request outcome, with stable persona/instructions, credentials, image bytes and
 hidden reasoning omitted. Check its timestamp and session: it may be historical.
 It is not proof that a chosen game action succeeded. A lane has no recorded request
 until its next real model call; inspecting it does not generate one.
+
+## Death and ghost navigation
+
+The native ghost-navigation fix is installed and verified through actual movement.
+It permits normal `move_to` and `stop` after Vesper has released as a ghost,
+and exposes `self.is_ghost` plus numeric `self.death_state`. Normal same-map,
+range, pathfinding and immobility checks remain. Pending movement fails on a
+living/ghost transition or unreleased death before arrival is reported.
+
+Ghost following, combat, casting and looting remain blocked. Release, corpse
+reclaim and resurrection-offer controls are still unimplemented; this does not
+complete the death/recovery loop or automatically resurrect him. Continue to
+verify each move through its actual position change and original action result.
+
+**MCP ownership and ghost-navigation update — November 1:** the generation 23
+orphaned lease was released locally and the prior Full controller was restored.
+The ownership changes passed 218 harness tests, 86 subtests and 36 focused
+TypeScript tests. The native change passed 181 source predicate/state checks
+and its build; the gateway and native update are installed.
+
+Live verification used separate connected MCP calls under generation 25.
+Token-bearing status returned `control_mode: lease_token`,
+`owned_by_control_token: true` and `owned_by_session: false`.
+A normal map-530 ghost `move_to` advanced X 9407 → 9410; its original UUID
+receipt completed with `arrived: true`. Fresh observation remained
+`is_ghost: true`, `alive: false` at `(9410, -6847.6699, 15.468)`, about
+3.047 yards from the starting position. Explicit hand-back released the lease
+and restored Full running with Social stopped. This proves remote ownership,
+normal ghost movement and hand-back; release/reclaim/resurrection remain open.
 
 ## Ordinary companion bots and the addon
 

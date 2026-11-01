@@ -19,7 +19,11 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 - [x] Omit unverified prior-proposal notes only from local body prompts; retain archives, social context and full MCP access.
 - [x] Persistent Moon protection, protected-creature avoidance and attributable guard incident records. Low health does not authorize retaliation; see the command guide for release rules.
 - [x] MCP inspection of full native observations, controller status and recorded model context, with exact complete request paging for newly captured calls.
-- [x] Session-bound MCP takeover, normal direct actions, action receipts and explicit hand-back to prior local controller intent; native Moon guard remains active.
+- [x] MCP takeover, normal direct actions, action receipts and explicit hand-back to prior local controller intent; native Moon guard remains active.
+- [x] Install and verify the remote lease correction: the exact secret token authorizes mutations and
+  token-bearing status proves `owned_by_control_token`. SDK session churn does not own or revoke the lease;
+  old generations stay fenced. Remote hand-back is explicit, with no automatic expiry. Local stdio remains
+  session-bound with disconnect cleanup; local operator recovery can require the exact observed generation.
 - [x] Bounded MCP event waits with per-character cursors, server epoch/history-gap reporting and a fresh snapshot on wake. No API model calls are needed for MCP inspection or waiting.
 - [ ] Playtest a complete MCP visit with Vesper: observe → take over → choose actions → wait on meaningful changes → inspect results → hand back. A conversation turn ending cannot itself signal hand-back.
 - [x] Installed catch-up XP: Vesper receives 2× his normal award while below Aurenne's level, reverting to normal at equal/higher level. This is a local progression mechanic, not model quest competence.
@@ -132,6 +136,8 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [x] Configured lead-specific combat healing preference: routine topping-off at 50% or above should not delay fighting/following; below 50% healing remains a choice. Local lead health is explicit; tame/Moon protection retains priority.
 - [ ] Demonstrate timely awareness of Aurenne's actual outgoing attacks/casts, meaningful assistance, range/path recovery and sensible resource use. A selected target alone is not proof she attacked.
 - [ ] Evaluate combat choices in real fights without replacing his choices with a fixed rotation or automatic attack rule. A dedicated tank/healer role remains separate development.
+- [ ] Ground direct-heal targets and urgent self-care in explicit spell roles and recipient health. The November 1
+  bonfire incident included Holy Light aimed at a hostile, then full-health Aurenne while Vesper was critically hurt.
 
 ## 11. Buff maintenance and situational utility — support facts installed; self/party application observed
 
@@ -182,12 +188,23 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [x] Interact with eligible game objects, including objects that use the normal game-object handler.
 - [ ] Playtest doors and zone transitions; add grounded handling for elevators, boats and portals, including boarding/waiting, transport state and arrival.
 - [ ] Recognize a blocked route or changed map and recover without fabricated paths, direct-line fallback or teleport shortcuts.
+- [ ] Ground a claimed travel goal in its actual destination and current quest state. On November 1, the planner
+  copied Bonfire coordinates while claiming to travel to Falconwing Square for a quest whose required item was 0/1.
+- [ ] Expose environmental hazard effects and scripted-behavior uncertainty. Bonfire 183444 uses `go_heat`, which
+  is absent from current object facts; sampled health loss does not identify fire versus individual attackers.
 
-## 14. Death and resurrection — not built as a player loop
+## 14. Death and resurrection — ghost navigation verified; broader recovery incomplete
 
-- [ ] Expose actionable death/ghost/corpse and resurrection-offer state.
-- [ ] Add intentional release, corpse run/reclaim, acceptance of a real resurrection and appropriate recovery choices.
-- [ ] Rejoin the party and restore the chosen goal after recovery; report when recovery is blocked. Current ordinary native actions reject a dead actor rather than providing automatic resurrection.
+- [x] Install the native fix exposing `self.is_ghost` and numeric `self.death_state`, with ordinary
+  `move_to` and `stop` for an already released ghost. Keep normal pathfinding, map/range/immobility checks
+  and Moon protection. Cancel pending motion on living/ghost transitions or unreleased death before arrival.
+- [x] Verify actual ghost navigation through a fresh accepted action, observed position change and original result.
+  Generation 25 moved about 3.047 yards on map 530 while `is_ghost: true` and `alive: false`; the original
+  receipt completed with `arrived: true`. Following, combat, casting and looting stay blocked dead.
+- [ ] Expose actionable corpse/reclaim and resurrection-offer state.
+- [ ] Add intentional release, corpse reclaim, acceptance of a real resurrection and appropriate recovery choices.
+- [ ] Rejoin the party and restore the chosen goal after recovery; report when recovery is blocked. No automatic
+  resurrection or GM shortcut is provided; ghost navigation alone does not complete the recovery loop.
 
 ## 15. Groups, readiness and dungeons — invitations partial; broader loop not built
 
@@ -244,6 +261,22 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Add an explicit, natural “ask Aurenne” fallback for meaningful ambiguity, missing information or consequential irreversible choices. Ask when it helps; carry out ordinary agreed actions without constant permission.
 
 ## Verification and next pass
+
+**MCP ownership and ghost-navigation update — November 1:** the generation 23
+orphaned lease was released locally and the prior Full controller was restored.
+The ownership changes passed 218 harness tests, 86 subtests and 36 focused
+TypeScript tests. The native change passed 181 source predicate/state checks
+and its build; the gateway and native update are installed.
+
+Live verification used separate connected MCP calls under generation 25.
+Token-bearing status returned `control_mode: lease_token`,
+`owned_by_control_token: true` and `owned_by_session: false`.
+A normal map-530 ghost `move_to` advanced X 9407 → 9410; its original UUID
+receipt completed with `arrived: true`. Fresh observation remained
+`is_ghost: true`, `alive: false` at `(9410, -6847.6699, 15.468)`, about
+3.047 yards from the starting position. Explicit hand-back released the lease
+and restored Full running with Social stopped. This proves remote ownership,
+normal ghost movement and hand-back; release/reclaim/resurrection remain open.
 
 November 1: normal trade completion was verified for three incoming items and
 600 copper, including actual inventory and money changes. Trade opening,

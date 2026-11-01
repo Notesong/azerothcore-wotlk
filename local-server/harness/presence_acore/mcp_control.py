@@ -1,4 +1,4 @@
-"""Explicit SDK-session-owned Vesper control, with durable idempotent operations.
+"""Explicit Vesper control with durable, generation-bound ownership.
 
 No model calls, lease expiry, arbitrary commands, or forced process termination.
 Runtime actions and credentials are resolved locally only during authorized
@@ -31,6 +31,7 @@ PRIVATE_ROOT = Path('C:/Games/AzerothCore/local-qwen-private/mcp-control')
 CONTROL_SCHEMA = 'native-mcp-control/v1'
 CHARACTER = 'Vesper'
 _STATES = {'preparing', 'active', 'releasing', 'released'}
+_AUTHORIZATION_MODES = {'sdk_session', 'lease_token'}
 _TOKEN = re.compile(r'[a-f0-9]{64}')
 _UNCERTAIN = {'timeout', 'connection_failed', 'connection_closed', 'invalid_response',
     'response_mismatch', 'response_too_large'}
@@ -114,12 +115,23 @@ def _write_bytes(path: Path, raw: bytes) -> None:
 
 
 def _safe_result(value: dict[str, Any]) -> dict[str, Any]:
-    return {key: item for key, item in value.items() if key != 'control_token'}
+    def clean(item):
+        if isinstance(item, dict):
+            return {key: clean(child) for key, child in item.items()
+                if key not in {'control_token', 'lease_token'}}
+        if isinstance(item, list):
+            return [clean(child) for child in item]
+        return item
+    return clean(value)
 
 
 class McpControlManager:
     def __init__(self, runtime=None, client=None, *, control_path: Path | None = None,
-                 receipt_root: Path | None = None, lock_factory=None, lifecycle_lock_factory=None) -> None:
+                 receipt_root: Path | None = None, lock_factory=None, lifecycle_lock_factory=None,
+                 authorization_mode: str = 'sdk_session') -> None:
+        if not isinstance(authorization_mode, str) or authorization_mode not in _AUTHORIZATION_MODES:
+            raise ControlError('invalid_authorization_mode')
+        self.authorization_mode = authorization_mode
         self.runtime = runtime if runtime is not None else PresenceRuntimeAdapter()
         self.client = client
         self.control_path = Path(control_path) if control_path else PRESENCE_ROOT / 'backend/data/runtime-game-player-mcp-control.json'
@@ -153,6 +165,8 @@ class McpControlManager:
         if (state.get('schema') != CONTROL_SCHEMA or state.get('character') != CHARACTER
                 or not isinstance(state.get('state'), str) or state['state'] not in _STATES
                 or type(state.get('generation')) is not int or state['generation'] < 1
+                or not isinstance(state.get('authorization_mode', 'sdk_session'), str)
+                or state.get('authorization_mode', 'sdk_session') not in _AUTHORIZATION_MODES
                 or not _TOKEN.fullmatch(str(state.get('owner_session_hash', '')))
                 or not _TOKEN.fullmatch(str(state.get('token_hash', '')))):
             raise ControlError('invalid_control_state')
@@ -193,29 +207,50 @@ class McpControlManager:
         self._save(record)
         return dict(response)
 
-    def _owned(self, owner_hash: str, token: str | None, *, allow_released=False) -> dict[str, Any]:
+    @staticmethod
+    def _token_matches(state: dict[str, Any], token: str | None) -> bool:
+        return (isinstance(token, str) and bool(_TOKEN.fullmatch(token))
+            and secrets.compare_digest(state.get('token_hash', ''), _hash(token)))
+
+    def _owned(self, owner_hash: str, token: str | None, *, allow_released=False,
+               operator=False) -> dict[str, Any]:
         state = self._state()
-        if (state.get('owner_session_hash') != owner_hash or not isinstance(token, str)
-                or not _TOKEN.fullmatch(token) or not secrets.compare_digest(state.get('token_hash', ''), _hash(token))):
+        if (state.get('owner_session_hash') != owner_hash or not self._token_matches(state, token)
+                or not operator and state.get('authorization_mode', 'sdk_session') != self.authorization_mode):
             raise ControlError('control_not_owned')
         if state['state'] != 'active' and not (allow_released and state['state'] in _STATES):
             raise ControlError('control_not_active')
         return state
 
-    def status(self, owner_session: str | None = None) -> dict[str, Any]:
+    def _authorized(self, owner_session: str, token: str | None, *, allow_released=False) -> dict[str, Any]:
+        state = self._state()
+        owner_hash = state.get('owner_session_hash') if self.authorization_mode == 'lease_token' else _owner(owner_session)
+        return self._owned(owner_hash, token, allow_released=allow_released)
+
+    def status(self, owner_session: str | None = None, control_token: str | None = None) -> dict[str, Any]:
         with self.lock_factory():
             state = self._state()
+            mode = state.get('authorization_mode', 'sdk_session')
             return {'available': True, 'character': CHARACTER, 'state': state['state'],
-                'generation': state['generation'], 'owned_by_session': bool(owner_session)
-                    and state.get('owner_session_hash') == _owner(owner_session)}
+                'generation': state['generation'], 'control_mode': mode,
+                'owned_by_session': mode == 'sdk_session' and bool(owner_session)
+                    and state.get('owner_session_hash') == _owner(owner_session),
+                'owned_by_control_token': mode == self.authorization_mode == 'lease_token'
+                    and state['state'] == 'active' and self._token_matches(state, control_token)}
 
     def require_owner(self, owner_session: str, token: str) -> dict[str, Any]:
         with self.lock_factory():
-            state = self._owned(_owner(owner_session), token)
+            state = self._authorized(owner_session, token)
             return {'character': CHARACTER, 'state': state['state'], 'generation': state['generation']}
 
-    def take_over(self, owner_session: str, operation_id: str, *, resume_previous=True) -> dict[str, Any]:
+    def take_over(self, owner_session: str, operation_id: str, *, resume_previous=True,
+                  control_token: str | None = None) -> dict[str, Any]:
         with self.lifecycle_lock_factory():
+            if self.authorization_mode == 'lease_token':
+                return self._take_over_capability(owner_session, operation_id,
+                    resume_previous=resume_previous, control_token=control_token)
+            if control_token is not None:
+                raise ControlError('unexpected_control_token')
             return self._take_over_transition(owner_session, operation_id, resume_previous=resume_previous)
 
     def _take_over_transition(self, owner_session: str, operation_id: str, *, resume_previous=True) -> dict[str, Any]:
@@ -253,6 +288,73 @@ class McpControlManager:
                     'generation': state['generation'] + 1, 'operation_id': operation_id,
                     'prior_controllers': prior, 'resume_previous': bool(resume_previous)}
                 _write(self.control_path, state)
+        return self._activate(record, state)
+
+    def _take_over_capability(self, owner_session: str, operation_id: str, *, resume_previous: bool,
+                              control_token: str | None) -> dict[str, Any]:
+        if type(resume_previous) is not bool:
+            raise ControlError('invalid_resume_previous')
+        initiator, operation_id = _owner(owner_session), _operation(operation_id)
+        with self.lock_factory():
+            state = self._state()
+            existing = self._record(operation_id)
+            if existing is not None:
+                request = existing.get('request', {})
+                same_lease = (state.get('authorization_mode') == 'lease_token'
+                    and request.get('owner_session_hash') == state.get('owner_session_hash')
+                    and request.get('generation') == state['generation'])
+                original_retry = (same_lease and state.get('operation_id') == operation_id
+                    and existing.get('initiator_session_hash') == initiator and control_token is None)
+                if not (original_retry or same_lease and self._token_matches(state, control_token)):
+                    raise ControlError('control_owned')
+                if (existing.get('kind') != 'take_over' or request.get('authorization_mode') != 'lease_token'
+                        or request.get('resume_previous') is not resume_previous):
+                    raise ControlError('operation_id_conflict')
+                record, _ = self._new(operation_id, 'take_over', request)
+                if state['state'] == 'active' and state.get('operation_id') == operation_id and record.get('phase') != 'completed':
+                    if not self._token_matches(state, record.get('lease_token')):
+                        raise ControlError('lease_receipt_unavailable')
+                    return self._finish(record, {'available': True, 'character': CHARACTER, 'status': 'active',
+                        'operation_id': operation_id, 'control_token': record['lease_token'],
+                        'control_mode': 'lease_token', 'generation': state['generation'], 'controllers_stopped': True})
+                if record.get('phase') == 'completed':
+                    active = state['state'] == 'active'
+                    response = dict(record['response']) if active else _safe_result(record['response'])
+                    return {**response, 'replayed': True, 'lease_active': active}
+                if state['state'] != 'preparing' or state.get('operation_id') != operation_id:
+                    raise ControlError('control_busy')
+            elif state['state'] != 'released':
+                # The initial operation is the only token-less retry allowed to
+                # return a capability. Knowing a session ID or a new UUID is not proof.
+                if state.get('authorization_mode') != 'lease_token' or state['state'] != 'active' or not self._token_matches(state, control_token):
+                    raise ControlError('control_owned')
+                record, _ = self._new(operation_id, 'take_over', {
+                    'owner_session_hash': state['owner_session_hash'], 'generation': state['generation'],
+                    'authorization_mode': 'lease_token', 'resume_previous': resume_previous})
+                record['initiator_session_hash'] = initiator
+                return self._finish(record, {'available': True, 'character': CHARACTER, 'status': 'active',
+                    'operation_id': operation_id, 'control_token': control_token,
+                    'control_mode': 'lease_token', 'generation': state['generation'], 'controllers_stopped': True})
+            else:
+                if control_token is not None:
+                    raise ControlError('unexpected_control_token')
+                prior = self.runtime.snapshot()
+                token, owner_hash = secrets.token_hex(32), _hash('lease:' + secrets.token_hex(32))
+                generation = state['generation'] + 1
+                record, _ = self._new(operation_id, 'take_over', {
+                    'owner_session_hash': owner_hash, 'generation': generation,
+                    'authorization_mode': 'lease_token', 'resume_previous': resume_previous})
+                record.update(lease_token=token, initiator_session_hash=initiator)
+                self._save(record)
+                state = {'schema': CONTROL_SCHEMA, 'character': CHARACTER, 'state': 'preparing',
+                    'authorization_mode': 'lease_token', 'owner_session_hash': owner_hash,
+                    'token_hash': _hash(token), 'generation': generation, 'operation_id': operation_id,
+                    'prior_controllers': prior, 'resume_previous': resume_previous}
+                _write(self.control_path, state)
+        return self._activate(record, state)
+
+    def _activate(self, record: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+        operation_id = record['operation_id']
         # Never hold the interlock while waiting for runners to observe stop.
         try:
             self.runtime.stop_gracefully(state['prior_controllers'])
@@ -276,36 +378,49 @@ class McpControlManager:
             _write(self.control_path, current)
             return self._finish(record, {'available': True, 'character': CHARACTER, 'status': 'active',
                 'operation_id': operation_id, 'control_token': record['lease_token'],
+                'control_mode': current.get('authorization_mode', 'sdk_session'),
                 'generation': current['generation'], 'controllers_stopped': True})
 
     def hand_back(self, owner_session: str, token: str | None, operation_id: str, *, resume_previous=True,
                   _disconnect=False) -> dict[str, Any]:
+        if self.authorization_mode == 'lease_token':
+            with self.lifecycle_lock_factory():
+                with self.lock_factory():
+                    state = self._authorized(owner_session, token, allow_released=True)
+                return self._release_transition(state['owner_session_hash'], token, operation_id,
+                    resume_previous=resume_previous, expected_generation=state['generation'])
         return self._release(_owner(owner_session), token, operation_id,
             resume_previous=resume_previous, disconnect=_disconnect)
 
     def _release(self, owner_hash: str, token: str | None, operation_id: str, *, resume_previous: bool,
-                 disconnect=False, operator=False) -> dict[str, Any]:
+                 disconnect=False, operator=False, expected_generation: int | None = None) -> dict[str, Any]:
         with self.lifecycle_lock_factory():
             return self._release_transition(owner_hash, token, operation_id, resume_previous=resume_previous,
-                disconnect=disconnect, operator=operator)
+                disconnect=disconnect, operator=operator, expected_generation=expected_generation)
 
     def _release_transition(self, owner_hash: str, token: str | None, operation_id: str, *, resume_previous: bool,
-                            disconnect=False, operator=False) -> dict[str, Any]:
+                            disconnect=False, operator=False, expected_generation: int | None = None) -> dict[str, Any]:
         operation_id = _operation(operation_id)
         if type(resume_previous) is not bool:
             raise ControlError('invalid_resume_previous')
         with self.lock_factory():
-            record, _ = self._new(operation_id, 'hand_back', {'owner_session_hash': owner_hash,
+            state = self._state()
+            if expected_generation is not None and state['generation'] != expected_generation:
+                raise ControlError('control_generation_changed')
+            # Capability authorization precedes receipt creation and replay, so
+            # an invalid or obsolete token cannot poison or reuse operation IDs.
+            if not disconnect:
+                state = self._owned(owner_hash, token, allow_released=True, operator=operator)
+            elif state.get('authorization_mode', 'sdk_session') != 'sdk_session' or state.get('owner_session_hash') != owner_hash:
+                return {'available': True, 'character': CHARACTER, 'status': 'not_owned'}
+            request = {'owner_session_hash': owner_hash,
                 'token_hash': _hash(token) if isinstance(token, str) else None,
-                'resume_previous': resume_previous, 'disconnect': bool(disconnect), 'operator': bool(operator)})
+                'resume_previous': resume_previous, 'disconnect': bool(disconnect), 'operator': bool(operator)}
+            if expected_generation is not None:
+                request['generation'] = expected_generation
+            record, _ = self._new(operation_id, 'hand_back', request)
             if record.get('phase') == 'completed':
                 return dict(record['response'])
-            state = self._state()
-            if disconnect:
-                if state.get('owner_session_hash') != owner_hash:
-                    return self._finish(record, {'available': True, 'character': CHARACTER, 'status': 'not_owned'})
-            else:
-                state = self._owned(owner_hash, token, allow_released=True)
             if state['state'] == 'released':
                 if record.get('phase') == 'restoring' and resume_previous:
                     try:
@@ -347,44 +462,68 @@ class McpControlManager:
             except Exception:
                 response = {'available': False, 'character': CHARACTER, 'status': 'released',
                     'operation_id': operation_id, 'reason': 'controller_restore_failed'}
+                record['response'] = response
+                self._save(record)  # Keep restoring retryable under the same UUID.
+                return dict(response)
             return self._finish(record, response)
 
     def session_closed(self, owner_session: str, operation_id: str | None = None) -> dict[str, Any]:
         with self.lock_factory():
             state = self._state()
+            if state.get('authorization_mode', 'sdk_session') == 'lease_token':
+                return {'available': True, 'character': CHARACTER, 'status': 'lease_retained',
+                    'control_mode': 'lease_token'}
             if state.get('owner_session_hash') != _owner(owner_session) or state['state'] == 'released':
                 return {'available': True, 'character': CHARACTER, 'status': 'not_owned'}
             operation_id = operation_id or str(uuid.uuid5(uuid.NAMESPACE_URL,
                 'presence-mcp-disconnect:' + _owner(owner_session) + ':' + str(state['generation'])))
-        return self.hand_back(owner_session, None, operation_id,
-            resume_previous=state.get('resume_previous', True), _disconnect=True)
+        return self._release(_owner(owner_session), None, operation_id,
+            resume_previous=state.get('resume_previous', True), disconnect=True,
+            expected_generation=state['generation'])
 
     def control(self, action: str, owner_session: str | None = None, operation_id: str | None = None, control_token: str | None = None,
                 resume_previous: bool = True) -> dict[str, Any]:
         if action == 'status':
-            return self.status(owner_session)
+            return self.status(owner_session, control_token)
         if type(resume_previous) is not bool:
             raise ControlError('invalid_resume_previous')
         if action == 'take_over':
-            if control_token is not None:
-                raise ControlError('unexpected_control_token')
-            return self.take_over(owner_session, operation_id, resume_previous=resume_previous)
+            return self.take_over(owner_session, operation_id, resume_previous=resume_previous,
+                control_token=control_token)
         if action == 'hand_back':
             return self.hand_back(owner_session, control_token, operation_id, resume_previous=resume_previous)
         raise ControlError('invalid_control_action')
 
-    def recover(self, *, resume_previous: bool = False) -> dict[str, Any]:
+    def recover(self, *, resume_previous: bool = False, expected_generation: int | None = None) -> dict[str, Any]:
         """Local operator CLI only; never registered as a public MCP operation."""
-        with self.lock_factory():
-            state = self._state()
-            if state['state'] == 'released':
-                return {'available': True, 'character': CHARACTER, 'status': 'released'}
-            original = self._record(state['operation_id'])
-            token = original.get('lease_token') if original else None
-            if not isinstance(token, str) or not secrets.compare_digest(_hash(token), state['token_hash']):
-                raise ControlError('lease_receipt_unavailable')
-        return self._release(state['owner_session_hash'], token, str(uuid.uuid4()),
-            resume_previous=resume_previous, operator=True)
+        if expected_generation is not None and (type(expected_generation) is not int or expected_generation < 1):
+            raise ControlError('invalid_expected_generation')
+        with self.lifecycle_lock_factory():
+            with self.lock_factory():
+                state = self._state()
+                if expected_generation is not None and state['generation'] != expected_generation:
+                    raise ControlError('control_generation_changed')
+                if state['generation'] == 0:
+                    return {'available': True, 'character': CHARACTER, 'status': 'released'}
+                operation_id = str(uuid.uuid5(uuid.NAMESPACE_URL,
+                    'presence-mcp-recover:' + state['owner_session_hash'] + ':' + str(state['generation'])))
+                recovery = self._record(operation_id)
+                if state['state'] == 'released' and recovery is None:
+                    return {'available': True, 'character': CHARACTER, 'status': 'released'}
+                original = self._record(state['operation_id'])
+                token = original.get('lease_token') if original else None
+                if (not original or original.get('kind') != 'take_over'
+                        or original.get('request', {}).get('owner_session_hash') != state['owner_session_hash']
+                        or original.get('phase') == 'completed'
+                            and original.get('response', {}).get('generation') != state['generation']
+                        or state.get('authorization_mode') == 'lease_token'
+                            and original.get('request', {}).get('generation') != state['generation']
+                        or not self._token_matches(state, token)):
+                    raise ControlError('lease_receipt_unavailable')
+                if recovery is not None:
+                    resume_previous = recovery.get('request', {}).get('resume_previous')
+            return self._release_transition(state['owner_session_hash'], token, operation_id,
+                resume_previous=resume_previous, operator=True, expected_generation=state['generation'])
 
     def act(self, owner_session: str, control_token: str, operation_id: str, action: dict[str, Any],
             observed_sequence: int | None = None) -> dict[str, Any]:
@@ -398,13 +537,17 @@ class McpControlManager:
         if not isinstance(control_token, str) or not _TOKEN.fullmatch(control_token):
             raise ControlError('invalid_control_token')
         with self.lock_factory():
-            record, fresh = self._new(operation_id, 'action', {'owner_session_hash': owner_hash,
-                'token_hash': _hash(control_token), 'action': wire, 'observed_sequence': observed_sequence})
+            state = self._authorized(owner_session, control_token)
+            owner_hash = state['owner_session_hash']
+            request = {'owner_session_hash': owner_hash,
+                'token_hash': _hash(control_token), 'action': wire, 'observed_sequence': observed_sequence}
+            if self.authorization_mode == 'lease_token':
+                request.update(authorization_mode='lease_token', generation=state['generation'])
+            record, fresh = self._new(operation_id, 'action', request)
             if not fresh:
                 return _safe_result(record.get('response') or {'available': True, 'character': CHARACTER,
                     'operation_id': operation_id, 'request_id': operation_id, 'status': 'unknown',
                     'outcome_uncertain': True})
-            state = self._owned(owner_hash, control_token)
             record.update(phase='dispatching', generation=state['generation'])
             self._save(record)  # Persist before sending. A crash can never authorize a resend.
             try:
@@ -466,7 +609,7 @@ class McpControlManager:
                     'result': result, 'resolution': 'original_request_result'}
                 if not envelope['ok']:
                     resolved['error'] = result
-                return self._finish(record, resolved)
+                return _safe_result(self._finish(record, resolved))
             except Exception:
                 return {**_safe_result(response or {}), 'available': False, 'character': CHARACTER,
                     'operation_id': operation_id, 'request_id': operation_id,
@@ -719,20 +862,22 @@ class PresenceRuntimeAdapter:
         return result
 
 
-def default_manager(client) -> McpControlManager:
-    return McpControlManager(client=client)
+def default_manager(client, *, authorization_mode: str = 'sdk_session') -> McpControlManager:
+    return McpControlManager(client=client, authorization_mode=authorization_mode)
 
 
 def main(argv=None) -> int:
     import argparse
     parser = argparse.ArgumentParser(description='Local operator recovery for the fixed Vesper MCP lease.')
     parser.add_argument('--recover', action='store_true', required=True)
+    parser.add_argument('--expected-generation', type=int, help='Refuse recovery if the lease generation has changed.')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--resume-previous', action='store_true', help='Explicitly restore prior autonomous intent.')
     group.add_argument('--leave-stopped', action='store_true', help='Release ownership and keep runners stopped (default).')
     args = parser.parse_args(argv)
     try:
-        result = default_manager(None).recover(resume_previous=args.resume_previous)
+        result = default_manager(None).recover(resume_previous=args.resume_previous,
+            expected_generation=args.expected_generation)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get('available') else 1
     except Exception as error:

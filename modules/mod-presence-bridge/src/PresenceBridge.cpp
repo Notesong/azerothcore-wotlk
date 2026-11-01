@@ -157,6 +157,11 @@ Json::object PositionOf(WorldObject const* object)
         {"z", object->GetPositionZ()}, {"orientation", object->GetOrientation()}};
 }
 
+bool IsReleasedGhost(Player const* player)
+{
+    return player->isDead() && player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
+}
+
 char const* QuestStatusName(QuestStatus status)
 {
     switch (status)
@@ -624,6 +629,7 @@ struct Actor
     std::string pendingId;
     std::string phase;
     std::string motionId;
+    bool motionAsGhost = false;
     bool loginCancelled = false;
     Position destination;
     std::chrono::steady_clock::time_point loginDeadline;
@@ -1261,18 +1267,20 @@ public:
             }
             if (!actor->motionId.empty())
             {
-                if (player->GetDistance(actor->destination) < 1.0f)
-                {
-                    Finish(actor->motionId, true, {{"status", "completed"}, {"arrived", true}});
-                    JournalAppend(player, "arrival", {{"request_id", actor->motionId},
-                        {"distance", player->GetDistance(actor->destination)}, {"source", "normal_motion_completion"}});
-                    actor->motionId.clear();
-                }
-                else if (std::chrono::steady_clock::now() > actor->motionDeadline || !player->IsAlive())
+                bool ghost = IsReleasedGhost(player);
+                if ((!player->IsAlive() && !ghost) || ghost != actor->motionAsGhost
+                    || std::chrono::steady_clock::now() > actor->motionDeadline)
                 {
                     player->GetMotionMaster()->Clear();
                     player->StopMoving();
                     Finish(actor->motionId, false, {{"status", "failed"}, {"reason", "movement_timeout_or_death"}});
+                    actor->motionId.clear();
+                }
+                else if (player->GetDistance(actor->destination) < 1.0f)
+                {
+                    Finish(actor->motionId, true, {{"status", "completed"}, {"arrived", true}});
+                    JournalAppend(player, "arrival", {{"request_id", actor->motionId},
+                        {"distance", player->GetDistance(actor->destination)}, {"source", "normal_motion_completion"}});
                     actor->motionId.clear();
                 }
             }
@@ -3803,6 +3811,8 @@ private:
         self["map_id"] = player->GetMapId();
         self["zone_id"] = player->GetZoneId();
         self["area_id"] = player->GetAreaId();
+        self["is_ghost"] = IsReleasedGhost(player);
+        self["death_state"] = uint32(player->getDeathState());
         self["class"] = player->getClass();
         self["race"] = player->getRace();
         self["power_type"] = uint32(player->getPowerType());
@@ -4704,7 +4714,7 @@ private:
             return Error(request, "protection_escape",
                 "Protected creature avoidance is active; no health override applies");
         }
-        if (!player->IsAlive())
+        if (!player->IsAlive() && !(type == "move_to" && IsReleasedGhost(player)))
             return Error(request, "dead", "Character is dead; no automatic revive or other GM shortcut is applied");
         if (auto commerce = CommerceAction(request, action, actor, player, type))
         {
@@ -4789,6 +4799,7 @@ private:
             if (!actor.motionId.empty())
                 Finish(actor.motionId, false, {{"status", "failed"}, {"reason", "superseded"}});
             actor.motionId = id;
+            actor.motionAsGhost = IsReleasedGhost(player);
             actor.destination.Relocate(x, y, z);
             actor.motionDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
             ClearCosmeticEmote(actor, player);
