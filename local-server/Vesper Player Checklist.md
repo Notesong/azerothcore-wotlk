@@ -55,6 +55,15 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 - [x] Normal interaction with nearby NPCs and game objects; known active unit-targeted spells can be cast through normal validation.
 - [x] Pick up eligible quest books and ordinary chest loot through the normal opening spell, permitted loot slots and verified inventory gains. The original request continues locally through a cast-time opening.
 - [x] Verified all three Solanian items in play: Journal, Scroll and Orb each reached inventory and 1/1. Scroll and Orb succeeded while generic object LOS was false, using normal game-object opening validation.
+- [x] November 1 direct MCP pickup opened crate 180600 through normal Opening (3365) and stored one crystal
+  (20743). Fresh inventory changed 0 → 1 and quest 8463 advanced 0/6 → 1/6; the original request completed
+  with no skipped slots and no pending opening.
+- [x] After hand-back, Vesper autonomously chose two more crate pickups at 15:34:19 and 15:34:57 UTC.
+  Each original request completed with one crystal (20743), no skipped slots and no partial result;
+  captured follow-up views showed quest 8463 at 2/6 and then 3/6.
+- [x] Later live observation and user confirmation showed the crystal objective at 6/6 after one direct pickup
+  and five during autonomous play. This verifies the collected objective, not turn-in or reward; individual
+  receipts were retained for the two examples above. Arcane Cores were 1/6 and the Head of Thaelis 0/1.
 - [ ] Add generic carried-item use, including quest items with the required unit/object/location target and normal cooldown/consumption checks.
 - [ ] Demonstrate quest-specific reasoning: choose a relevant object or spell, such as Arcane Torrent when a quest actually calls for it, using the observed learned spell and objective rather than an invented ability or target.
 - [ ] Cover quest mechanics that need ground targeting, item targeting or other controls beyond the current unit-cast/object-interaction actions.
@@ -126,6 +135,9 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 - [x] Loot eligible creature corpses and ordinary chest objects under normal ownership, lock, quest, range and bag rules. Pending openings retain their original request identity; failed/unfinished pickups do not become collected-item working notes.
 - [x] Local body view binds currently observed lootable corpses/chests to exact `loot(target_guid)` candidates, preserves full corpse facts and skips the pending target; contents remain unpredicted until actual receipts.
+- [ ] Correct candidate ordering and playtest named-corpse pickup. At 15:38:59 UTC, dead, lootable Thaelis
+  was 0.24 yards away but omitted behind four crates 5–48 yards away. No retained loot attempt targeted
+  that corpse; Head progress remained 0/1, and the corpse's actual contents were not established.
 - [ ] Add a bounded new-loot availability wake event for untracked deaths, preserving combat, movement and pending-opening priorities. Current untracked loot can wait for the normal review deadline.
 - [ ] Add observed Need/Greed/Pass rolls and model-chosen responses, including equipment usefulness and group expectations.
 - [ ] Handle bind-on-pickup/other confirmations, unique limits, quest loot, full bags and partial/error results explicitly; avoid loops or assumptions that every item was received.
@@ -190,10 +202,13 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Recognize a blocked route or changed map and recover without fabricated paths, direct-line fallback or teleport shortcuts.
 - [ ] Ground a claimed travel goal in its actual destination and current quest state. On November 1, the planner
   copied Bonfire coordinates while claiming to travel to Falconwing Square for a quest whose required item was 0/1.
+- [ ] Correct the later fabricated Bonfire repair mechanic and blocked-follow loop. At 15:40:19 UTC, Qwen
+  chose the exact fire center to "rest and recover gear durability" despite full health. A subsequent live
+  check found him alive there with 135 health. The object advertised no repair service; the correction is being tested.
 - [ ] Expose environmental hazard effects and scripted-behavior uncertainty. Bonfire 183444 uses `go_heat`, which
   is absent from current object facts; sampled health loss does not identify fire versus individual attackers.
 
-## 14. Death and resurrection — ghost navigation verified; broader recovery incomplete
+## 14. Death and resurrection — ghost navigation and Spirit Healer recovery verified; broader loop incomplete
 
 - [x] Install the native fix exposing `self.is_ghost` and numeric `self.death_state`, with ordinary
   `move_to` and `stop` for an already released ghost. Keep normal pathfinding, map/range/immobility checks
@@ -201,10 +216,19 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [x] Verify actual ghost navigation through a fresh accepted action, observed position change and original result.
   Generation 25 moved about 3.047 yards on map 530 while `is_ghost: true` and `alive: false`; the original
   receipt completed with `arrived: true`. Following, combat, casting and looting stay blocked dead.
+- [x] Expose observed Spirit Healers and their normal recovery option. Selecting it opens a server confirmation;
+  a separate chosen `spirit_healer_activate` requires that exact current, single-use healer confirmation.
+  Ordinary interaction range, visibility and line of sight apply; Moon protection remains active.
+- [x] Verify direct MCP recovery through normal healer menu 83, option 0, then explicit confirmation in generation 30.
+  The actual receipt showed alive false → true, ghost true → false, health 1 → 79 of 158, 14 durability changes
+  at the configured 25% rate and no resurrection sickness at level 6. Later health regenerated to 158.
+  Explicit hand-back restored Full running with Social stopped.
+- [x] Preserve actual recovery receipts, distinguish them from current consent, expire confirmations after 30 seconds,
+  clear them on scene/life changes, and resolve uncertain activation through its original request without repeating it.
 - [ ] Expose actionable corpse/reclaim and resurrection-offer state.
 - [ ] Add intentional release, corpse reclaim, acceptance of a real resurrection and appropriate recovery choices.
-- [ ] Rejoin the party and restore the chosen goal after recovery; report when recovery is blocked. No automatic
-  resurrection or GM shortcut is provided; ghost navigation alone does not complete the recovery loop.
+- [ ] Demonstrate autonomous recovery choice, rejoin the party and restore the chosen goal; report when recovery is
+  blocked. No automatic resurrection or GM shortcut is provided; the direct Spirit Healer test is a mechanical check.
 
 ## 15. Groups, readiness and dungeons — invitations partial; broader loop not built
 
@@ -262,6 +286,31 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 ## Verification and next pass
 
+**Spirit Healer and crystal pickup — November 1:** direct MCP generation 30
+completed the normal healer dialog and separate activation. Its measured receipt
+confirmed living state, health 1 → 79 of 158, 14 durability losses at the configured
+25% rate and no sickness at level 6. A subsequent normal crate opening stored
+one crystal (20743); fresh inventory and quest 8463 both changed from zero to
+one, leaving the quest at 1/6. The original loot request completed with no pending
+opening. Explicit hand-back restored Full running with Social stopped. These
+operator checks establish the direct mechanics. After hand-back, Vesper chose
+two more crate pickups at 15:34:19 and 15:34:57 UTC. Follow-up captures at
+15:34:20 and 15:34:59 UTC retained completed original receipts, each with one
+crystal (20743), no skipped slots and no partial result, alongside quest counts
+2/6 and 3/6. A later live observation, confirmed by the user, showed crystals
+6/6, Arcane Cores 1/6 and the Head of Thaelis 0/1. The crystal objective was
+collected after one direct pickup and five during autonomous play; turn-in and
+reward remain unverified.
+
+The missing Head diagnosis found no retained loot attempt on the nearby dead,
+lootable Thaelis corpse: the four displayed pickup choices were farther crates.
+This establishes a candidate omission, not a failed Head-loot receipt or proof
+of the corpse's contents. The later Bonfire visit was another observed failure:
+Qwen invented resting there to restore durability and moved to its exact center.
+Candidate grounding, named-corpse pickup, safe navigation and blocked-follow
+recovery are being tested. Sustained reliability, autonomous resurrection and
+the full corpse/rejoin loop remain open.
+
 **MCP ownership and ghost-navigation update — November 1:** the generation 23
 orphaned lease was released locally and the prior Full controller was restored.
 The ownership changes passed 218 harness tests, 86 subtests and 36 focused
@@ -276,7 +325,8 @@ receipt completed with `arrived: true`. Fresh observation remained
 `is_ghost: true`, `alive: false` at `(9410, -6847.6699, 15.468)`, about
 3.047 yards from the starting position. Explicit hand-back released the lease
 and restored Full running with Social stopped. This proves remote ownership,
-normal ghost movement and hand-back; release/reclaim/resurrection remain open.
+normal ghost movement and hand-back. The later Spirit Healer check above adds
+normal recovery; release, corpse reclaim and real resurrection offers remain open.
 
 November 1: normal trade completion was verified for three incoming items and
 600 copper, including actual inventory and money changes. Trade opening,

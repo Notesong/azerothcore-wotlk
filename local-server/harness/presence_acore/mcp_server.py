@@ -255,7 +255,11 @@ def _additional_tools() -> list[dict[str, Any]]:
             "action": {"type": "string", "enum": ["status", "take_over", "hand_back"]},
             "operation_id": operation_id, "control_token": token,
             "resume_previous": {"type": "boolean", "default": True}}, ["action"], False),
-        tool("wow_act", "Perform one normal Vesper action under an active takeover. Native game rules and Moon guard apply. Reuse operation_id only for the identical operation; inspect accepted actions for completion.", {
+        tool("wow_act", "Perform one normal Vesper action under an active takeover. Native game rules and Moon guard "
+            "apply. spirit_healer_activate(target_guid) confirms only a fresh server Spirit Healer confirmation for "
+            "that exact observed healer; first use normal interact/gossip. Resurrection costs and results come from "
+            "server facts. Reuse operation_id only for the identical operation; "
+            "inspect accepted actions for completion.", {
             "control_token": token, "operation_id": operation_id, "action": ACTION_SCHEMA,
             "observed_sequence": {"type": "integer", "minimum": 0}},
              ["control_token", "operation_id", "action"], False),

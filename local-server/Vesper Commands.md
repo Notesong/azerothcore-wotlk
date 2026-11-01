@@ -50,6 +50,37 @@ including when an informative `opening_spell_id` is present in the observation.
 Generic carried quest-item activation remains on the development checklist;
 quest-starting carried items are supported as described below.
 
+On November 1, direct MCP control opened an Unstable Mana Crystal Crate
+(object 180600) through normal Opening (3365). The original request completed
+with one Unstable Mana Crystal (20743), no skipped slots and no pending opening.
+Fresh inventory rose 0 → 1 and quest 8463 advanced 0/6 → 1/6. This verifies the
+pickup mechanic.
+
+After hand-back, Vesper chose two further `loot` actions at 15:34:19 and
+15:34:57 UTC. Their original requests each completed with one crystal (20743),
+no skipped slots and `partial: false`; the captured follow-up views showed
+quest progress 2/6 and then 3/6. These demonstrate autonomous pickup choices.
+Later live observation and user confirmation showed the crystal objective at
+6/6: one direct MCP pickup and the remaining five during autonomous play. The
+two receipts above establish individual results; the later count establishes
+objective completion, not a turn-in or reward. Arcane Cores were 1/6 and the
+Head of Thaelis was 0/1 at that check. Sustained reliability remains playtest work.
+
+The missing Head was not a demonstrated failed loot operation. At 15:38:59 UTC,
+Thaelis the Hungerer was dead, lootable and about 0.24 yards away, but the four
+pickup choices shown to the body model were crates 5–48 yards away. Chest-first
+ordering had omitted the nearby corpse. The retained ledger contained no loot
+attempt on that Thaelis corpse. Its actual contents were never established.
+Candidate selection and named-corpse pickup are being tested.
+
+Navigation also remains a known problem. At 15:40:19 UTC, Qwen chose the exact
+Bonfire center to "rest and recover gear durability" despite full health. A
+later live check found him alive at that center with 135 health. Resting at a
+fire does not repair gear; durability repair requires an actual repair service
+and its normal receipt. The observation supplied no rest or repair service for
+that object. Grounding this choice and recovering from blocked follow attempts
+are still being tested; no completed correction is claimed here.
+
 ## Custom in-game commands
 
 Type these in WoW chat. Both work while Vesper's model controller is paused and
@@ -344,8 +375,9 @@ in Presence when ready to test his choices; installation preserves its stopped o
 
 Remaining player-loop work includes targeted quest-item/consumable use, talent
 spending, dungeon Need/Greed/Pass choices, hearthstone/flight/bind actions, and
-death/corpse/resurrection recovery. Ordinary game-object interaction and known
-unit-targeted spell casting already exist, but do not cover every quest mechanic.
+release, corpse reclaim and real resurrection-offer controls. Ordinary game-object
+interaction and known unit-targeted spell casting already exist, but do not cover
+every quest mechanic.
 
 ## Giving Vesper gear through trade
 
@@ -498,7 +530,7 @@ hidden reasoning omitted. Check its timestamp and session: it may be historical.
 It is not proof that a chosen game action succeeded. A lane has no recorded request
 until its next real model call; inspecting it does not generate one.
 
-## Death and ghost navigation
+## Death, ghost navigation and Spirit Healers
 
 The native ghost-navigation fix is installed and verified through actual movement.
 It permits normal `move_to` and `stop` after Vesper has released as a ghost,
@@ -506,10 +538,41 @@ and exposes `self.is_ghost` plus numeric `self.death_state`. Normal same-map,
 range, pathfinding and immobility checks remain. Pending movement fails on a
 living/ghost transition or unreleased death before arrival is reported.
 
-Ghost following, combat, casting and looting remain blocked. Release, corpse
-reclaim and resurrection-offer controls are still unimplemented; this does not
-complete the death/recovery loop or automatically resurrect him. Continue to
-verify each move through its actual position change and original action result.
+Ghost following, combat, casting and looting remain blocked. An already released
+ghost can now use an observed Spirit Healer through the normal dialog:
+
+1. Reach the visible healer, choose `interact`, then select the exact advertised
+   `gossip_select` recovery option. This opens the server's confirmation; it does
+   not resurrect Vesper.
+2. Choose the exact `recovery.spirit_healer_confirmation.next_action`,
+   `spirit_healer_activate(target_guid)`, while that confirmation is current.
+   Inspect the resulting `recovery_receipt` for actual life, sickness and
+   durability changes.
+
+The confirmation lasts 30 seconds and is bound to that character, session,
+healer and current scene. Movement, another target/dialog, death/release,
+resurrection or logout invalidates it; submitting it consumes it once. The
+healer must remain visible, normally interactable and in range and line of sight.
+A lost reply is checked through its original request identity, without another
+activation. Historical receipts do not authorize a new recovery.
+
+The normal server applies its configured costs. At level 6, Vesper had no
+resurrection sickness; sickness starts at level 11 in this setup. Spirit Healer
+recovery uses a 25% maximum-durability loss on equipped and carried durable items,
+including bag contents. Read the actual receipt rather than assuming every
+item loses the same number of points.
+
+Direct MCP verification on November 1, generation 30, used healer menu 83,
+option 0 and the normal confirmation. The activation receipt confirmed
+`alive: false → true`, `is_ghost: true → false`, health 1 → 79 of 158,
+14 actual durability changes and `resurrection_sickness: null`. Later health
+regenerated to 158. Explicit hand-back restored Full running with Social stopped.
+This verifies chosen Spirit Healer recovery, not autonomous recovery decisions.
+
+Release, corpse reclaim and acceptance of a real resurrection offer remain
+unimplemented. The full death/recovery/rejoin loop is still incomplete. Continue
+to verify each move and recovery through fresh state and its original receipt;
+Moon protection remains active.
 
 **MCP ownership and ghost-navigation update — November 1:** the generation 23
 orphaned lease was released locally and the prior Full controller was restored.
@@ -525,7 +588,8 @@ receipt completed with `arrived: true`. Fresh observation remained
 `is_ghost: true`, `alive: false` at `(9410, -6847.6699, 15.468)`, about
 3.047 yards from the starting position. Explicit hand-back released the lease
 and restored Full running with Social stopped. This proves remote ownership,
-normal ghost movement and hand-back; release/reclaim/resurrection remain open.
+normal ghost movement and hand-back. The later Spirit Healer test adds normal
+recovery; release, corpse reclaim and real resurrection offers remain open.
 
 ## Ordinary companion bots and the addon
 

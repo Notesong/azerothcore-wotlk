@@ -162,6 +162,11 @@ bool IsReleasedGhost(Player const* player)
     return player->isDead() && player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
 }
 
+enum class RecoverySpell : uint32
+{
+    ResurrectionSickness = 15007
+};
+
 char const* QuestStatusName(QuestStatus status)
 {
     switch (status)
@@ -217,6 +222,7 @@ Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
     bool trainer = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_TRAINER);
     bool repair = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_REPAIR);
     bool questgiver = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
+    bool spiritHealer = unit->IsCreature() && unit->IsSpiritHealer();
     if (vendor)
         services.emplace_back("vendor");
     if (trainer)
@@ -225,6 +231,8 @@ Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
         services.emplace_back("repair");
     if (questgiver)
         services.emplace_back("questgiver");
+    if (spiritHealer)
+        services.emplace_back("spirit_healer");
     Json::array casts;
     for (uint32 slot = CURRENT_GENERIC_SPELL; slot < CURRENT_MAX_SPELL; ++slot)
         if (Spell* spell = unit->GetCurrentSpell(slot); spell && spell->getState() != SPELL_STATE_FINISHED)
@@ -246,7 +254,7 @@ Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
         {"emote_state", unit->GetUInt32Value(UNIT_NPC_EMOTESTATE)}, {"stand_state", unit->getStandState()},
         {"is_player", unit->IsPlayer()}, {"npc_flags", uint32(unit->GetNpcFlags())},
         {"services", std::move(services)}, {"is_vendor", vendor}, {"is_trainer", trainer}, {"can_repair", repair},
-        {"is_questgiver", questgiver},
+        {"is_questgiver", questgiver}, {"is_spirit_healer", spiritHealer},
         {"moving", unit->isMoving()}, {"selected_target_guid", std::to_string(unit->GetTarget().GetRawValue())},
         {"attack_victim_guid", unit->GetVictim() ? std::to_string(unit->GetVictim()->GetGUID().GetRawValue()) : "0"},
         {"channel_spell_id", unit->GetUInt32Value(UNIT_CHANNEL_SPELL)},
@@ -591,6 +599,18 @@ struct QuestFrame
     std::chrono::steady_clock::time_point opened;
 };
 
+struct SpiritHealerFrame
+{
+    ObjectGuid source;
+    ObjectGuid character;
+    uint32 map = 0;
+    uint32 instance = 0;
+    uint32 menu = 0;
+    std::set<uint32> options;
+    std::string receivedAt;
+    std::chrono::steady_clock::time_point received;
+};
+
 struct CachedRequest
 {
     std::string encoded;
@@ -856,6 +876,7 @@ public:
                         "request_reward", "reward_quest",
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "gossip_select",
+                        "spirit_healer_activate",
                         "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
@@ -1255,6 +1276,7 @@ public:
             }
             if (actor->phase == "ready")
             {
+                RefreshSpiritHealerFrames(player);
                 if (player->isMoving() || player->IsInCombat() || player->IsNonMeleeSpellCast(false))
                     ClearCosmeticEmote(*actor, player);
                 RefreshTrade(player);
@@ -1298,6 +1320,226 @@ public:
             RemoveCreationResult(actor->session.get());
         }
         _actors.clear();
+    }
+
+    Creature* SpiritHealerNpc(Player* player, ObjectGuid guid)
+    {
+        if (!player || !IsReleasedGhost(player) || !player->IsInWorld() || player->IsBeingTeleported())
+            return nullptr;
+        Creature* npc = player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_SPIRITHEALER);
+        return npc && player->CanSeeOrDetect(npc) && player->IsWithinLOSInMap(npc) ? npc : nullptr;
+    }
+
+    bool SpiritHealerFrameCurrent(Player* player, SpiritHealerFrame const& frame)
+    {
+        return frame.character == player->GetGUID() && frame.source == player->GetTarget()
+            && frame.map == player->GetMapId() && frame.instance == player->GetInstanceId()
+            && std::chrono::steady_clock::now() - frame.received < std::chrono::seconds(30)
+            && SpiritHealerNpc(player, frame.source);
+    }
+
+    void ClearSpiritHealerFrames(WorldSession* session)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        _spiritHealerMenus.erase(session);
+        _spiritHealerConfirmations.erase(session);
+    }
+
+    void ClearSpiritRecovery(Player* player)
+    {
+        if (!player)
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        _spiritHealerMenus.erase(player->GetSession());
+        _spiritHealerConfirmations.erase(player->GetSession());
+        _spiritRecoveryReceipts.erase(player->GetSession());
+    }
+
+    std::optional<SpiritHealerFrame> CurrentSpiritHealerFrame(WorldSession* session, bool menu)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto const& frames = menu ? _spiritHealerMenus : _spiritHealerConfirmations;
+        auto found = frames.find(session);
+        return found == frames.end() ? std::nullopt : std::optional<SpiritHealerFrame>(found->second);
+    }
+
+    void RefreshSpiritHealerFrames(Player* player)
+    {
+        for (bool menu : {true, false})
+            if (auto frame = CurrentSpiritHealerFrame(player->GetSession(), menu);
+                frame && !SpiritHealerFrameCurrent(player, *frame))
+            {
+                std::lock_guard<std::mutex> lock(_eventMutex);
+                auto& frames = menu ? _spiritHealerMenus : _spiritHealerConfirmations;
+                auto found = frames.find(player->GetSession());
+                if (found != frames.end() && found->second.received == frame->received)
+                    frames.erase(found);
+            }
+    }
+
+    void CaptureSpiritHealerFrame(WorldSession* session, WorldPacket const& packet, bool menu)
+    {
+        // A new menu supersedes any previous recovery dialog, including other NPCs.
+        ClearSpiritHealerFrames(session);
+        try
+        {
+            if (!menu && packet.size() != 8)
+                return;
+            Player* player = session->GetPlayer();
+            WorldPacket copy(packet);
+            SpiritHealerFrame frame;
+            copy >> frame.source;
+            if (!player || frame.source != player->GetTarget() || !SpiritHealerNpc(player, frame.source))
+                return;
+            frame.character = player->GetGUID();
+            frame.map = player->GetMapId();
+            frame.instance = player->GetInstanceId();
+            frame.received = std::chrono::steady_clock::now();
+            frame.receivedAt = Timestamp();
+            if (menu)
+            {
+                uint32 textId, count;
+                copy >> frame.menu >> textId >> count;
+                if (count > 64)
+                    return;
+                for (uint32 index = 0; index < count; ++index)
+                {
+                    uint32 option, money;
+                    uint8 icon, coded;
+                    std::string text, confirmation;
+                    copy >> option >> icon >> coded >> money >> text >> confirmation;
+                    frame.options.insert(option);
+                }
+            }
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(session))
+                return;
+            (menu ? _spiritHealerMenus : _spiritHealerConfirmations)[session] = std::move(frame);
+        }
+        catch (std::exception const&)
+        {
+            // Only an actual, decoded normal server dialog can authorize recovery.
+        }
+    }
+
+    Json::object RecoverySnapshot(Player* player)
+    {
+        RefreshSpiritHealerFrames(player);
+        Json::object result{{"is_ghost", IsReleasedGhost(player)},
+            {"spirit_healer_confirmation", nullptr}, {"receipt", nullptr}};
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        if (auto found = _spiritHealerConfirmations.find(player->GetSession());
+            found != _spiritHealerConfirmations.end())
+        {
+            SpiritHealerFrame const& frame = found->second;
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                frame.received + std::chrono::seconds(30) - std::chrono::steady_clock::now()).count();
+            std::string guid = std::to_string(frame.source.GetRawValue());
+            result["spirit_healer_confirmation"] = Json::object{{"target_guid", guid}, {"available", true},
+                {"received_at", frame.receivedAt}, {"remaining_ms", std::max<int64>(0, remaining)},
+                {"next_action", Json::object{{"type", "spirit_healer_activate"}, {"target_guid", guid}}}};
+        }
+        if (auto found = _spiritRecoveryReceipts.find(player->GetSession()); found != _spiritRecoveryReceipts.end())
+            result["receipt"] = found->second;
+        return result;
+    }
+
+    Json::object SpiritHealerAction(Json::object const& request, Json::object const& action,
+        Actor& actor, Player* player, std::string const& type)
+    {
+        ObjectGuid target(GuidNumber(action, "target_guid"));
+        RefreshSpiritHealerFrames(player);
+        Creature* npc = SpiritHealerNpc(player, target);
+        if (!npc)
+            return Error(request, "invalid_spirit_healer",
+                "Recovery requires a released ghost and a visible Spirit Healer in normal range and line of sight");
+        std::string guid = std::to_string(target.GetRawValue());
+        if (type == "interact")
+        {
+            ClearSpiritHealerFrames(actor.session.get());
+            player->SetSelection(target);
+            WorldPacket packet(CMSG_GOSSIP_HELLO, 8);
+            packet << target;
+            actor.session->HandleGossipHelloOpcode(packet);
+            return Response(request, true, {{"status", "accepted"}, {"request_id", Text(request, "id")},
+                {"target_guid", guid}, {"recovery", RecoverySnapshot(player)}});
+        }
+        if (type == "gossip_select")
+        {
+            if (!player->PlayerTalkClass || !action.if_contains("menu_id") || !action.if_contains("option_id"))
+                return Error(request, "invalid_gossip", "Choose an explicit advertised Spirit Healer menu option");
+            uint32 menuId = Unsigned(action, "menu_id");
+            uint32 optionId = Unsigned(action, "option_id");
+            GossipMenu const& menu = player->PlayerTalkClass->GetGossipMenu();
+            GossipMenuItem const* option = menu.GetItem(optionId);
+            auto frame = CurrentSpiritHealerFrame(actor.session.get(), true);
+            bool captured = frame && frame->source == target && frame->menu == menuId
+                && frame->options.contains(optionId) && SpiritHealerFrameCurrent(player, *frame);
+            if (!captured || menu.GetSenderGUID() != target || menu.GetMenuId() != menuId || !option
+                || option->IsCoded || option->OptionType != GOSSIP_OPTION_SPIRITHEALER || !menu.GetItemData(optionId))
+                return Error(request, "stale_gossip", "Choose the current normal Spirit Healer recovery option");
+            ClearSpiritHealerFrames(actor.session.get());
+            WorldPacket packet(CMSG_GOSSIP_SELECT_OPTION, 16);
+            packet << target << menuId << optionId;
+            actor.session->HandleGossipSelectOptionOpcode(packet);
+            return Response(request, true, {{"status", "accepted"}, {"request_id", Text(request, "id")},
+                {"target_guid", guid}, {"menu_id", menuId}, {"option_id", optionId},
+                {"recovery", RecoverySnapshot(player)}});
+        }
+        auto frame = CurrentSpiritHealerFrame(actor.session.get(), false);
+        bool confirmed = frame && frame->source == target && SpiritHealerFrameCurrent(player, *frame);
+        if (!confirmed)
+            return Error(request, "spirit_healer_confirmation_required",
+                "First open and select the normal Spirit Healer dialog; its confirmation expires after 30 seconds");
+        ClearSpiritHealerFrames(actor.session.get());
+        std::map<ObjectGuid, std::pair<uint32, uint32>> durability;
+        auto remember = [&durability, player](Item* item)
+        {
+            if (CarriedItem(player, item) && item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY))
+                durability[item->GetGUID()] = {item->GetUInt32Value(ITEM_FIELD_DURABILITY),
+                    item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY)};
+        };
+        for (uint8 slot = 0; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+            remember(player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+        for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+            if (Bag* container = player->GetBagByPos(bag))
+                for (uint32 slot = 0; slot < std::min(container->GetBagSize(), uint32(MAX_BAG_SIZE)); ++slot)
+                    remember(container->GetItemByPos(uint8(slot)));
+        bool aliveBefore = player->IsAlive();
+        bool ghostBefore = IsReleasedGhost(player);
+        uint32 healthBefore = player->GetHealth();
+        float lossRate = sWorld->getRate(RATE_DURABILITY_LOSS_ON_SPIRIT_RESURRECT);
+        WorldPacket packet(CMSG_SPIRIT_HEALER_ACTIVATE, 8);
+        packet << target;
+        actor.session->HandleSpiritHealerActivateOpcode(packet);
+        bool aliveAfter = player->IsAlive();
+        bool ghostAfter = IsReleasedGhost(player);
+        bool recovered = !aliveBefore && ghostBefore && aliveAfter && !ghostAfter;
+        Json::array changes;
+        for (auto const& [itemGuid, before] : durability)
+            if (Item* item = player->GetItemByGuid(itemGuid); CarriedItem(player, item)
+                && item->GetUInt32Value(ITEM_FIELD_DURABILITY) != before.first)
+                changes.emplace_back(Json::object{{"item_guid", std::to_string(itemGuid.GetRawValue())},
+                    {"before", before.first}, {"after", item->GetUInt32Value(ITEM_FIELD_DURABILITY)},
+                    {"max_durability", before.second}});
+        Json::object receipt{{"request_id", Text(request, "id")}, {"target_guid", guid},
+            {"status", recovered ? "completed" : "failed"},
+            {"reason", recovered ? "" : "normal_handler_did_not_restore_life"},
+            {"life_changed", aliveBefore != aliveAfter}, {"alive_before", aliveBefore}, {"alive_after", aliveAfter},
+            {"is_ghost_before", ghostBefore}, {"is_ghost_after", ghostAfter},
+            {"health_before", healthBefore}, {"health_after", player->GetHealth()},
+            {"durability_loss_rate_percent", lossRate}, {"durability_changes", std::move(changes)},
+            {"resurrection_sickness", nullptr}};
+        if (Aura* sickness = player->GetAura(uint32(RecoverySpell::ResurrectionSickness)))
+            receipt["resurrection_sickness"] = Json::object{{"spell_id", uint32(RecoverySpell::ResurrectionSickness)},
+                {"duration_ms", sickness->GetDuration()}, {"max_duration_ms", sickness->GetMaxDuration()}};
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _spiritRecoveryReceipts[actor.session.get()] = receipt;
+        }
+        return Response(request, true, {{"status", recovered ? "completed" : "failed"},
+            {"reason", recovered ? "" : "normal_handler_did_not_restore_life"},
+            {"request_id", Text(request, "id")}, {"recovery_receipt", std::move(receipt)}});
     }
 
     void QuestRewarded(Player* player, Quest const* quest)
@@ -1862,35 +2104,48 @@ public:
                 event = CapturePartyInvite(session, packet);
                 break;
             case SMSG_GOSSIP_MESSAGE:
+                CaptureSpiritHealerFrame(session, packet, true);
                 CaptureQuestFrame(session, packet);
                 event["type"] = "gossip";
                 break;
+            case SMSG_SPIRIT_HEALER_CONFIRM:
+                CaptureSpiritHealerFrame(session, packet, false);
+                event["type"] = "spirit_healer_confirmation";
+                break;
             case SMSG_GOSSIP_COMPLETE:
+                ClearSpiritHealerFrames(session);
                 ClearQuestFrames(session);
                 return;
             case SMSG_QUESTGIVER_QUEST_LIST:
+                ClearSpiritHealerFrames(session);
                 CaptureQuestFrame(session, packet);
                 event["type"] = "quest_menu";
                 break;
             case SMSG_LIST_INVENTORY:
+                ClearSpiritHealerFrames(session);
                 CaptureCommerceMenu(session, packet, false);
                 return;
             case SMSG_TRAINER_LIST:
+                ClearSpiritHealerFrames(session);
                 CaptureCommerceMenu(session, packet, true);
                 return;
             case SMSG_QUESTGIVER_QUEST_DETAILS:
+                ClearSpiritHealerFrames(session);
                 CaptureQuestFrame(session, packet);
                 event = CaptureSharedQuest(session, packet, false);
                 break;
             case SMSG_QUEST_CONFIRM_ACCEPT:
+                ClearSpiritHealerFrames(session);
                 ClearQuestFrames(session);
                 event = CaptureSharedQuest(session, packet, true);
                 break;
             case SMSG_QUESTGIVER_OFFER_REWARD:
+                ClearSpiritHealerFrames(session);
                 CaptureQuestFrame(session, packet);
                 event["type"] = "quest_reward";
                 break;
             case SMSG_QUESTGIVER_REQUEST_ITEMS:
+                ClearSpiritHealerFrames(session);
                 CaptureQuestFrame(session, packet);
                 event["type"] = "quest_request_items";
                 break;
@@ -2964,6 +3219,9 @@ private:
         _trainerMenus.erase(session);
         _questMenus.erase(session);
         _questDialogs.erase(session);
+        _spiritHealerMenus.erase(session);
+        _spiritHealerConfirmations.erase(session);
+        _spiritRecoveryReceipts.erase(session);
     }
 
     void ClearCosmeticEmote(Actor& actor, Player* player)
@@ -3823,6 +4081,7 @@ private:
         self["controller_owned"] = _actors.contains(name) && _actors[name]->session->GetPlayer() == player;
         self["target_guid"] = std::to_string(player->GetTarget().GetRawValue());
         Json::object result{{"self", self}, {"sequence", sequence}, {"timestamp", timestamp}};
+        result["recovery"] = RecoverySnapshot(player);
         result["trade"] = TradeSnapshot(player);
         {
             std::lock_guard<std::mutex> lock(_eventMutex);
@@ -4065,6 +4324,8 @@ private:
             for (auto const& [id, item] : player->PlayerTalkClass->GetGossipMenu().GetMenuItems())
                 gossip.push_back(Json::object{{"id", id}, {"text", item.Message},
                     {"coded", item.IsCoded}, {"cost", item.BoxMoney}, {"option_id", id},
+                    {"option_type", item.OptionType},
+                    {"is_spirit_healer", item.OptionType == GOSSIP_OPTION_SPIRITHEALER},
                     {"menu_id", gossipMenu.GetMenuId()},
                     {"target_guid", std::to_string(gossipMenu.GetSenderGUID().GetRawValue())}});
         }
@@ -4676,6 +4937,10 @@ private:
         auto const& action = actionValue->as_object();
         std::string type = Text(action, "type");
         std::string id = Text(request, "id");
+        if (type == "stop" || type == "move_to" || type == "target"
+            || (action.if_contains("target_guid")
+                && GuidNumber(action, "target_guid") != player->GetTarget().GetRawValue()))
+            ClearSpiritHealerFrames(actor.session.get());
         if (!actor.lootId.empty() && SupersedesPickup(type))
         {
             if (type == "loot" && GuidNumber(action, "target_guid") == actor.lootTarget.GetRawValue())
@@ -4714,6 +4979,9 @@ private:
             return Error(request, "protection_escape",
                 "Protected creature avoidance is active; no health override applies");
         }
+        if (type == "spirit_healer_activate"
+            || (!player->IsAlive() && (type == "interact" || type == "gossip_select")))
+            return SpiritHealerAction(request, action, actor, player, type);
         if (!player->IsAlive() && !(type == "move_to" && IsReleasedGhost(player)))
             return Error(request, "dead", "Character is dead; no automatic revive or other GM shortcut is applied");
         if (auto commerce = CommerceAction(request, action, actor, player, type))
@@ -5554,6 +5822,9 @@ private:
     std::map<WorldSession*, CommerceMenu> _trainerMenus;
     std::map<WorldSession*, QuestFrame> _questMenus;
     std::map<WorldSession*, QuestFrame> _questDialogs;
+    std::map<WorldSession*, SpiritHealerFrame> _spiritHealerMenus;
+    std::map<WorldSession*, SpiritHealerFrame> _spiritHealerConfirmations;
+    std::map<WorldSession*, Json::object> _spiritRecoveryReceipts;
     std::map<WorldSession*, PartyInvite> _partyInvites;
     std::map<WorldSession*, TradeFrame> _tradeFrames;
     std::map<WorldSession*, SharedQuestOffer> _questShares;
@@ -5647,6 +5918,22 @@ public:
         // This core invokes the hook after RewardQuest, including unannounced tracking rewards.
         Bridge::Instance().QuestRewarded(player, quest);
     }
+};
+
+class RecoveryLifecycle : public PlayerScript
+{
+public:
+    RecoveryLifecycle() : PlayerScript("presence_bridge_recovery_lifecycle", {
+        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_PLAYER_RELEASED_GHOST,
+        PLAYERHOOK_ON_PLAYER_RESURRECT, PLAYERHOOK_ON_LOGOUT}) { }
+
+    void OnPlayerJustDied(Player* player) override { Bridge::Instance().ClearSpiritRecovery(player); }
+    void OnPlayerReleasedGhost(Player* player) override { Bridge::Instance().ClearSpiritRecovery(player); }
+    void OnPlayerResurrect(Player* player, float /*restorePercent*/, bool& /*applySickness*/) override
+    {
+        Bridge::Instance().ClearSpiritRecovery(player);
+    }
+    void OnPlayerLogout(Player* player) override { Bridge::Instance().ClearSpiritRecovery(player); }
 };
 
 class TextEmotes : public PlayerScript
@@ -5794,6 +6081,7 @@ void Addmod_presence_bridgeScripts()
     new Presence::Packets();
     new Presence::TextEmotes();
     new Presence::QuestReceipts();
+    new Presence::RecoveryLifecycle();
     new Presence::ProtectionUnits();
     new Presence::ProtectionSpells();
     AddPresenceCatchupXpScripts();
