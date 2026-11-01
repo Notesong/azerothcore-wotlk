@@ -217,6 +217,12 @@ is not proof that an item exists on this corpse.
   cooldown and protection facts; unknown checks remain unknown. Include recipient health and urgent self-care:
   the November 1 bonfire incident included Holy Light aimed at a hostile, then full-health Aurenne while
   Vesper was critically hurt.
+  **Prepared; awaiting deployment:** additive native spell facts and a body combat card link current targets to
+  matching cast attempts, with partial target checks, normal melee range, cooldown/GCD and base costs.
+  Effective cost, exact spell range and full castability stay unknown; ordinary execution validation is final.
+  Self-area/other target modes retain their full catalog/actions but are outside this compact first version.
+  Full MCP access and hard Moon/taming guards remain. Native build approval, deployment and real-fight
+  playtests are pending; 2,404 offline checks passed, with the full 27 body actions retained.
 
 ## 11. Buff maintenance and situational utility — support facts installed; self/party application observed
 

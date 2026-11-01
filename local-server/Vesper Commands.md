@@ -757,6 +757,30 @@ Settings are in `server/configs/modules/presence_bridge.conf` under
 to disable it. Once this binary is installed, `.reload config` updates the cached
 settings without a server restart.
 
+## Prepared combat card — awaiting deployment
+
+The next body-context update links current combat facts to exact target GUIDs
+and matching `cast` attempts. It is prepared source work, not an installed or
+playtested improvement. Vesper still chooses his action; it adds no fixed
+rotation or automatic assist rule.
+
+The native additions describe learned spell roles, partial target applicability,
+normal melee range, spell cooldowns, the global cooldown and base resource costs.
+Effective cost, exact spell range and full castability remain unknown. Passing
+the target checks does not guarantee a cast will succeed; normal execution
+validation remains authoritative. The compact card covers supported unit-targeted
+spells and self-heals. Self-area and other target modes remain in the full spell
+catalog and action space but are outside this compact first version.
+
+The prepared package passes 2,404 offline game-player checks. A synthetic fixture
+produced a 1,567-byte card; its combat guide was 3,609 characters versus 15,331
+for the generic guide, with all 27 body actions retained. These are representation
+checks; actual model choices and latency await a live playtest.
+
+The native change is not built; deployment awaits explicit build approval and a
+clean server restart. Presence deployment and real combat playtests also remain.
+Full MCP observations/actions and the hard Moon/taming guards are preserved.
+
 ## Models and attention
 
 The body is back on local **Qwen3.5-4B Q4_K_XL** (`qwen3.5-4b-action`); the social
