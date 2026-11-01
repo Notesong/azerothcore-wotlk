@@ -1,6 +1,6 @@
 # Vesper command reference
 
-Current AzerothCore setup — October 31, 2026.
+Current AzerothCore setup — November 1, 2026.
 
 Feature progress and remaining playtests: [Vesper Player Checklist.md](Vesper%20Player%20Checklist.md).
 
@@ -23,6 +23,10 @@ combat still takes priority. His current emote cooldown is **90 seconds**;
 receiving your gesture does not reset it or require a reply.
 
 These are social gestures, not fixed commands that order a particular reply.
+
+Autonomous speech and emotes belong to the social lane; the body lane chooses
+gameplay actions. Body decisions do not repeat your chat as Vesper's own speech.
+Direct MCP speech and emote controls remain available.
 
 ## Quest-object pickup
 
@@ -208,6 +212,20 @@ position. This was verified with his quest-reward gauntlets, vest, boots and
 other carried armor, plus the Sunstrider Book Satchel. You can also ask in party
 chat: `/p Vesper, check your carried gear and equip useful upgrades and bags.`
 
+After the November 1 context update, Qwen chose and successfully equipped the
+Shoddy Chain Pants (37 armor, +35 base armor) and Shoddy Chain Belt (24 armor,
++5 base armor). Green Chain Boots remained equipped at 46 armor. These were
+autonomous choices with normal completion receipts; stable future gear choices
+still need playtesting.
+
+Equipment candidates are legal options, not upgrade recommendations or a list
+to work through. Comparisons show signed base-template armor and stat changes
+against the currently equipped item. For example, replacing 46-armor boots with
+2-armor boots shows `base_armor_delta: -44`. Missing comparisons stay unknown;
+enchantment and random-property bonuses are excluded from these base deltas.
+The planner still chooses whether an actual tradeoff is useful. It should not
+swap equipment merely to test the interface unless you ask for an experiment.
+
 Failed movement includes the exact attempted destination and recent failure
 counts. `no_path` means the normal pathfinder rejected that attempt; an observed
 upstairs NPC position alone does not establish a route to that floor.
@@ -229,11 +247,21 @@ unit-targeted spell casting already exist, but do not cover every quest mechanic
 
 ## Giving Vesper gear through trade
 
-Installed October 31, 2026. With Presence running and unpaused, open WoW's normal
-trade window with Vesper, place the gear or money in your offer, and accept.
-He receives the real partner, offered items, available bag space and acceptance
-state, then chooses whether to open or accept the exchange. Changed offers need
-a fresh acceptance. Both players must accept before anything transfers.
+Updated November 1, 2026. With Presence running and unpaused, initiate WoW's normal
+trade with Vesper. His `trade_begin` choice opens the window; it does not accept
+an exchange. Place the gear or money in your offer and click Accept. He sees the
+real partner, offer, available bag space and acceptance state, then chooses
+whether to accept. Changed offers need fresh consent. Both players must accept
+before anything transfers.
+
+While an open trade is empty, or Vesper has accepted and is waiting for your
+acceptance, the local controller can wait up to 60 seconds without repeatedly
+asking the body model. Offer/acceptance changes and other meaningful interrupts
+can still wake it. This waiting state does not count as a completed transfer.
+
+A real gift of **three items and 600 copper (6 silver)** was verified through
+the server's completed-transfer receipt and before/after inventory and money
+facts. Receiving an item does not establish that he has equipped it.
 
 This first version receives gifts; it does not put Vesper's items or money into
 the window or perform trade-slot services. Its internal actions are
@@ -250,6 +278,13 @@ corpse loot window gives a brief pickup gesture. Chest pickups retain their
 normal opening spell animation. Extra gestures skip movement, combat and casting
 and are rate-limited. They indicate an interaction began, not that an item was
 received or a quest reward was claimed.
+
+The November 1 core update clears Vesper's stored `/dance` loop when he resumes
+a mechanical action or is moving, fighting or casting. This clears the cosmetic
+animation without changing his posture, movement, spell or combat decision.
+It applies to the Presence-owned character; other bots keep their own behavior.
+Normal-action QA verified dance state `10` returning to `0` after native `stop`.
+Following after a dance still needs a live check with Aurenne online.
 
 ## MCP context and direct gameplay
 

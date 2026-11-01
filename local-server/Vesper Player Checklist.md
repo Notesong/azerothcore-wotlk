@@ -1,6 +1,7 @@
 # Vesper player checklist
 
-Status checked: **October 31, 2026**. This is the development and playtest list for Vesper's Presence-controlled Blood Elf Paladin.
+Status checked: **November 1, 2026**. This is the development and playtest list for Vesper's
+Presence-controlled Blood Elf Paladin.
 
 **Expose grounded facts and exact legal actions; let Vesper's model choose.** The controller should execute chosen persistent intentions, notice meaningful changes, invalidate stale claims, and keep latency and token use reasonable. Available mechanics are not proof of good autonomous play. Preserve his agency while enforcing the standing Moon protection rule.
 
@@ -65,7 +66,15 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 - [x] Inspect carried/equipped items, eligibility, exposed stats and weapon information; equip or unequip through normal handlers.
 - [x] Paladin leveling guidance considers useful weapon upgrades, Strength, survival and mana rather than rarity alone. Unresolved modifiers remain unknown.
-- [x] Local context links carried eligible items to exact observed destination slots and current equipment, without automatic rarity scoring. Verified autonomous equipping of the Green Chain Gauntlets, Vest and Boots, Sunspire Cord, and Shoddy Chain Bracers.
+- [x] Local context links carried eligible items to exact observed destination slots and current equipment, without automatic rarity scoring. Verified autonomous equipping of the Green Chain Gauntlets, Vest and Boots, and Shoddy Chain Bracers.
+- [x] Show signed base-template armor/stat deltas for known occupied-slot comparisons; eligibility is distinct
+  from upgrade advice. Unknown or incomplete facts remain unknown; enchantment/random-property bonuses are excluded.
+  No scoring, automatic equipping or action restriction is added.
+- [x] November 1: Qwen autonomously equipped Shoddy Chain Pants (37 armor, +35 base armor), then Shoddy Chain Belt
+  (24 armor, +5 base armor), with completed normal equipment receipts. Green Chain Boots remained equipped at 46 armor.
+- [ ] Verify stable equipment choices without repeated boot downgrades or mechanics testing. One frozen Qwen 4B replay
+  with negative armor deltas chose to wait; that single result does not establish that the live loop is fixed.
+  Continue checking useful future upgrades against actual equipment receipts.
 - [ ] Demonstrate sensible weapon, armor, shield/two-hand and quest-reward choices for his agreed role; verify the equipment result. Do not claim an unobserved specialization or computed stat total.
 
 ## 7. Vendors, repairs and buyback — mechanics installed; needs playtest
@@ -134,11 +143,16 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Build the full recovery ladder: reacquire → choose a grounded route → use appropriate transport/hearth if available → report the actual blocker when stuck.
 - [ ] Preserve the intended reunion/goal across visibility loss and map changes without repeated failed actions or invented locations.
 
-## 17. Intentional player trading — receiving gifts installed; needs playtest
+## 17. Intentional player trading — basic gift receipt verified; edge cases need playtest
 
 - [x] Expose real trade participants, offered items/bags, money, acceptance, capacity and final before/after transfer receipts.
 - [x] Add model-chosen begin/accept/unaccept/cancel for receiving gifts, bound to the current partner, trade generation and offer revision. Changed offers revoke consent; outgoing items/money and trade-slot services remain unavailable in this first version.
-- [ ] Verify a real item/money gift after both players accept, including changed offers, full bags, cancellation and disconnection. Consent is distinct from completed transfer.
+- [x] Distinguish opening the trade window from accepting its offer. An open empty trade or an accepted offer awaiting
+  the partner can wait locally for up to 60 seconds; meaningful interrupts still wake the body planner.
+- [x] Verified one real gift of three items plus 600 copper after both players accepted, using the completed-transfer
+  receipt and before/after inventory and money facts. Consent alone is distinct from completed transfer.
+- [ ] Playtest changed offers, full bags, cancellation and disconnection; verify that stale consent cannot complete
+  a changed offer. Receipt of the gifted gear does not prove autonomous equipment selection.
 - [ ] Add deliberate outgoing item/money offers and service-slot interactions with grounded choices and normal validation.
 
 ## 18. Bank and mail — not built
@@ -149,10 +163,16 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 ## 19. Conversation and real emotes — mechanics installed; needs playtest
 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
+- [x] Route autonomous speech/emotes through the social lane and mechanical choices through the body lane; body
+  output cannot echo the human's chat as Vesper's own line. Direct MCP speech/emote controls remain available.
 - [x] Brief native interaction gestures accompany verified NPC/menu/quest progress and corpse-loot opening, without extra chat or persistent poses. Normal chest opening keeps its existing spell animation.
 - [x] Send ordinary named/targeted WoW emotes through the real emote channel, including hug, point, kiss and slap. Named gestures and custom prose are distinct; completion requires an actual normal-handler delivery receipt.
 - [x] Expose actor + emote + authoritative explicit target facts. Directed incoming player gestures can reach the social inbox once per event; unknown/untargeted gestures do not force a direct wake. Target identity is never guessed from a name.
 - [x] Observed in play: Aurenne directed comfort at Vesper and he chose a targeted nod in response.
+- [x] Clear the Presence-owned character's stored dance loop on mechanical intent or active movement/combat/casting,
+  without changing posture, movement, spells or protection policy. Other bots are unaffected.
+- [x] Normal-action QA verified dance state 10 → native `stop` → state 0 after deployment.
+- [ ] Verify follow after dancing with Aurenne online; she was offline immediately after this restart.
 - [ ] Playtest natural replies, greetings and downtime expression with cooldowns; avoid combat distraction, repeated lines and constant permission questions.
 
 ## 20. Continuity, intentions and asking for help — partial
@@ -164,6 +184,28 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 ## Verification and next pass
 
-The installed worldserver reports `e009657c1083` (chest visibility correction, with emotes and catch-up XP retained). Pickup work passed 61 isolated native checks, 1,091 offline controller checks and 76 harness checks; the correction reran the 61 native checks and 1,091 existing controller cases. Normal opening requests for Journal, Scroll and Orb each resolved to one stored item, with fresh inventory and quest counters confirming 1/1. Scroll and Orb retained a false generic LOS diagnostic while normal opening succeeded. Solanian's Belongings is ready for turn-in. These were operator validation pickups; the full model-chosen quest loop remains a playtest item. Earlier emote checks were followed by a real directed-emote reply in play. This document does not claim a fresh successful live playtest for every installed option.
+November 1: normal trade completion was verified for three incoming items and
+600 copper, including actual inventory and money changes. Trade opening,
+acceptance and completed transfer are separate states. The controller now waits
+locally on an empty open trade or outstanding partner acceptance, while retaining
+meaningful interrupts. Base equipment deltas and autonomous social-lane routing
+are installed; the new core adds stored-dance recovery. Subsequent live Qwen
+decisions equipped Shoddy Chain Pants (+35 base armor) and Shoddy Chain Belt
+(+5 base armor), verified by normal completion receipts and equipped state.
+Green Chain Boots remained equipped. Dance → native stop QA reset stored pose
+10 → 0; following after dancing awaits a check with Aurenne online. Stable
+future gear selection and reliable combat assistance remain behavior playtests.
+
+Earlier October 31 pickup verification used worldserver `e009657c1083`, with
+emotes and catch-up XP retained. Pickup work passed 61 isolated native checks,
+1,091 offline controller checks and 76 harness checks; the correction reran the
+61 native checks and 1,091 existing controller cases. Normal opening requests
+for Journal, Scroll and Orb each resolved to one stored item, with fresh
+inventory and quest counters confirming 1/1. Scroll and Orb retained a false
+generic LOS diagnostic while normal opening succeeded. Solanian's Belongings
+was ready for turn-in at that check. These were operator validation pickups;
+the full model-chosen quest loop remains a playtest item. Earlier emote checks
+were followed by a real directed-emote reply in play. This document does not
+claim a fresh successful live playtest for every installed option.
 
 Prioritize one observable loop at a time: verify the facts and action contract, let Vesper choose, inspect the actual receipt, and record what still fails. Completion means both a working mechanic and a convincing player behavior test, with Moon protection intact.

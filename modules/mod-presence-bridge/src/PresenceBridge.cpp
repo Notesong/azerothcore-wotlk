@@ -221,6 +221,7 @@ Json::object UnitState(Unit const* unit)
         {"entry", unit->GetEntry()}, {"position", PositionOf(unit)}, {"level", unit->GetLevel()},
         {"health", unit->GetHealth()}, {"max_health", unit->GetMaxHealth()},
         {"alive", unit->IsAlive()}, {"in_combat", unit->IsInCombat()},
+        {"emote_state", unit->GetUInt32Value(UNIT_NPC_EMOTESTATE)}, {"stand_state", unit->getStandState()},
         {"is_player", unit->IsPlayer()}, {"npc_flags", uint32(unit->GetNpcFlags())},
         {"services", std::move(services)}, {"is_vendor", vendor}, {"is_trainer", trainer}, {"can_repair", repair},
         {"is_questgiver", questgiver},
@@ -1067,6 +1068,8 @@ public:
             }
             if (actor->phase == "ready")
             {
+                if (player->isMoving() || player->IsInCombat() || player->IsNonMeleeSpellCast(false))
+                    ClearCosmeticEmote(*actor, player);
                 RefreshTrade(player);
                 ProcessSharedQuest(*actor, player);
                 ProcessQuestAbandonCommands(*actor, player);
@@ -2733,6 +2736,21 @@ private:
         _questDialogs.erase(session);
     }
 
+    void ClearCosmeticEmote(Actor& actor, Player* player)
+    {
+        if (!player || !actor.session->IsHeadless() || actor.session->GetPlayer() != player
+            || player->GetUInt32Value(UNIT_NPC_EMOTESTATE) != EMOTE_STATE_DANCE)
+            return;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(actor.session.get()))
+                return;
+        }
+        // Normal client movement clears this stored loop. Native MotionMaster
+        // movement has no client movement packet, so complete that cosmetic step.
+        player->ClearEmoteState();
+    }
+
     Json::object TradeOffer(Player* viewer, TradeData* data)
     {
         Json::array items;
@@ -3108,6 +3126,7 @@ private:
         if (type == "trade_begin" && (!player->IsAlive() || !partner->IsAlive()
             || !player->IsWithinDistInMap(partner, TRADE_DISTANCE, false)))
             return Error(request, "cannot_begin_trade", "Opening trade requires living traders in normal trade range");
+        ClearCosmeticEmote(actor, player);
         std::string requestId = Text(request, "id");
         uint64 statusSequence = 0;
         {
@@ -4190,6 +4209,7 @@ private:
         auto now = std::chrono::steady_clock::now();
         if (now < actor.nextInteractionGesture)
             return;
+        ClearCosmeticEmote(actor, player);
         actor.nextInteractionGesture = now + std::chrono::seconds(1);
         // One-shot broadcast only: no text emote, movement, facing, or persistent pose.
         player->HandleEmoteCommand(emote);
@@ -4274,6 +4294,7 @@ private:
                     beforeItems[item] = player->GetItemCount(item, false);
         }
         uint64 beforeRevision = dialog ? dialog->revision : 0;
+        ClearCosmeticEmote(actor, player);
         if (CurrentGuardAction)
             CurrentGuardAction->quest = questId;
         {
@@ -4430,6 +4451,7 @@ private:
         }
         if (type == "stop")
         {
+            ClearCosmeticEmote(actor, player);
             player->AttackStop();
             player->InterruptNonMeleeSpells(false);
             if (actor.protectionMode == "evading" || actor.protectionMode == "stopped_no_safe_path")
@@ -4456,7 +4478,10 @@ private:
         if (!player->IsAlive())
             return Error(request, "dead", "Character is dead; no automatic revive or other GM shortcut is applied");
         if (auto commerce = CommerceAction(request, action, actor, player, type))
+        {
+            ClearCosmeticEmote(actor, player);
             return std::move(*commerce);
+        }
         if (type == "emote" && action.if_contains("emote"))
             return NamedEmoteAction(request, action, actor, player);
         if (type == "say" || type == "emote")
@@ -4537,6 +4562,7 @@ private:
             actor.motionId = id;
             actor.destination.Relocate(x, y, z);
             actor.motionDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+            ClearCosmeticEmote(actor, player);
             player->GetMotionMaster()->Clear();
             player->GetMotionMaster()->MovePoint(1, x, y, z, FORCED_MOVEMENT_NONE, 0, 0, true, false);
             return Response(request, true, {{"status", "accepted"}, {"request_id", id},
@@ -4582,6 +4608,7 @@ private:
             actor.motionId.clear();
             float distance = float(std::clamp(Number(action, "distance", 3), 1.0, 20.0));
             float angle = float(M_PI * 0.5);
+            ClearCosmeticEmote(actor, player);
             player->GetMotionMaster()->MoveFollow(unit, distance, angle, MOTION_SLOT_ACTIVE, true, false);
             return Response(request, true, {{"status", "accepted"}, {"request_id", id}, {"persistent", true},
                 {"follow_distance", distance}, {"follow_angle", angle}});
@@ -4602,6 +4629,7 @@ private:
             }
             if (!unit || !player->IsValidAttackTarget(unit) || !player->IsWithinLOSInMap(unit))
                 return Error(request, "invalid_target", "Unit is not a legal visible attack target");
+            ClearCosmeticEmote(actor, player);
             player->SetSelection(guid);
             player->SetFacingToObject(unit);
             WorldPacket packet(CMSG_ATTACKSWING, 8);
@@ -4639,6 +4667,7 @@ private:
                 return Error(request, "protected_target",
                     "Moon protection or observed taming forbids this intervention");
             }
+            ClearCosmeticEmote(actor, player);
             SpellCastResult cast = player->CastSpell(unit, spell, false);
             if (cast != SPELL_CAST_OK)
                 return Error(request, "cast_rejected",
@@ -4671,6 +4700,7 @@ private:
                 packet << creature->GetGUID();
                 auto beforeMenu = CurrentQuestFrame(actor.session.get(), false);
                 auto beforeDialog = CurrentQuestFrame(actor.session.get(), true);
+                ClearCosmeticEmote(actor, player);
                 actor.session->HandleGossipHelloOpcode(packet);
                 auto afterMenu = CurrentQuestFrame(actor.session.get(), false);
                 auto afterDialog = CurrentQuestFrame(actor.session.get(), true);
@@ -4687,6 +4717,7 @@ private:
             {
                 WorldPacket packet(CMSG_GAMEOBJ_USE, 8);
                 packet << gameObject->GetGUID();
+                ClearCosmeticEmote(actor, player);
                 actor.session->HandleGameObjectUseOpcode(packet);
             }
             else
@@ -4867,6 +4898,7 @@ private:
         }
         WorldPacket open(CMSG_LOOT, 8);
         open << guid;
+        ClearCosmeticEmote(actor, player);
         actor.session->HandleLootOpcode(open);
         LootWindow window;
         {
@@ -4994,6 +5026,7 @@ private:
             actor.motionId.clear();
         }
         // Standing still is execution of this chosen pickup, not a new follow policy.
+        ClearCosmeticEmote(actor, player);
         player->GetMotionMaster()->Clear();
         player->StopMoving();
         if (player->GetLootGUID())
