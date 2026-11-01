@@ -9,9 +9,10 @@ Presence-controlled Blood Elf Paladin.
 
 For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For ordinary Playerbots, custom alts, dungeon companions and the addon, see [Bot Guide.md](Bot%20Guide.md). Their commands and automation do not automatically apply to Vesper.
 
-Both body and social lanes now use **GPT-6 Luna** (`gpt-6-luna`), with reasoning
-set to `none`, verified in actual requests from both lanes. The dated Qwen receipts
-and replays below remain historical evidence.
+The body is back on local **Qwen3.5-4B** (`qwen3.5-4b-action`); the social lane uses
+**GPT-6 Luna** (`gpt-6-luna`). Both use reasoning `none`, with Qwen thinking disabled.
+This is the November 1 cost choice. Dated receipts and replays below describe the
+models selected at those times; behavior still needs playtesting.
 
 ## Foundations already available
 
@@ -20,7 +21,11 @@ and replays below remain historical evidence.
 - [x] Persistent follow, movement and melee execution between decisions; bounded action history and transient notes distinguish fresh facts from old proposals.
 - [x] Expose the latest accepted controller movement intention with exact action, request ID and source sequence.
   `server_motion_verified: false` distinguishes accepted intention from proven ongoing server movement.
-- [x] Omit unverified prior-proposal notes only from local body prompts; retain archives, social context and full MCP access.
+- [x] Apply the same compact grounded facts and focused native body guidance across local and API providers.
+  Omit unverified prior-proposal notes from body prompts; retain archives, social context and full MCP access.
+- [x] Require one complete native decision object; collapse equivalent complete repeated messages while
+  rejecting conflicting decisions, duplicate keys and trailing fragments. Keep failure diagnostics bounded
+  and free of provider text or reasoning.
 - [x] Persistent Moon protection, protected-creature avoidance and attributable guard incident records. Low health does not authorize retaliation; see the command guide for release rules.
 - [x] MCP inspection of full native observations, controller status and recorded model context, with exact complete request paging for newly captured calls.
 - [x] MCP takeover, normal direct actions, action receipts and explicit hand-back to prior local controller intent; native Moon guard remains active.
@@ -75,6 +80,9 @@ and replays below remain historical evidence.
 ## 3. Quest discovery and navigation — partial
 
 - [x] Expose held objectives, nearby units/objects, observed quest relevance, opening/range facts and nearby questgiver relations/status.
+- [x] Provide body guidance across providers: object names/coordinates do not prove a route or destination,
+  and already holding a required item is not a reason to revisit its source. Unknown routes stay unknown.
+- [ ] Playtest departure from the old Soaked Tome and sustained navigation toward the agreed current objective.
 - [ ] Connect objectives to relevant observed mobs, objects and NPCs; discover available quests and choose a useful next objective.
 - [ ] Add grounded route/travel information and completion checks. Distinguish a known destination, a remembered lead and an unknown location; no magic GPS or fabricated coordinates.
 
@@ -89,6 +97,12 @@ and replays below remain historical evidence.
 - [x] Inspect backpack/bag occupancy, free general-purpose space, specialty restrictions and empty bag equipment slots.
 - [x] Equip a carried eligible bag using `equip_item`, including a chosen bag slot; inspect and compare capacity before replacing a smaller bag.
 - [x] Verified Vesper chose and equipped the Sunstrider Book Satchel in a free bag slot during safe downtime.
+- [x] Retain up to four current equipped-bag identities in Social context, matched by GUID and bag slot;
+  missing/conflicting facts remain unknown. At the November 1 check, Small Brown Pouch (4496) was equipped
+  in slot 20 with six slots and total capacity 26. Its normal equip receipts had succeeded.
+- [x] Attribute Social failure claims to the matching requested action and item/target, using current equipment
+  facts for equipment status; an unrelated quest failure is not an equip failure.
+- [ ] Playtest accurate Social bag reporting after a new equipment change.
 - [ ] Demonstrate equipping the Satchel, upgrading a smaller bag and making useful space before buying, looting or claiming a reward.
 
 Also: we should absolutely teach me to equip the damned bag before I become the first paladin in Azeroth defeated by inventory management. XD <3
@@ -176,6 +190,10 @@ is not proof that an item exists on this corpse.
 
 - [x] Observe party/lead activity, targets, health/resources, learned spells, cooldowns and nearby threats; target, attack/chase, stop and cast legal known spells.
 - [x] Configured lead-specific combat healing preference: routine topping-off at 50% or above should not delay fighting/following; below 50% healing remains a choice. Local lead health is explicit; tame/Moon protection retains priority.
+- [x] Recognize a current living hostile victim matched to the accepted attack as an ongoing chosen pursuit
+  before melee contact sets `in_combat`; idle lead/spacing facts alone do not make the body idle.
+- [ ] Playtest continuing a permitted chosen fight while the lead is idle or starts another action, with
+  withdrawal, newer directions and protection still available to the planner.
 - [ ] Demonstrate timely awareness of Aurenne's actual outgoing attacks/casts, meaningful assistance, range/path recovery and sensible resource use. A selected target alone is not proof she attacked.
 - [ ] Evaluate combat choices in real fights without replacing his choices with a fixed rotation or automatic attack rule. A dedicated tank/healer role remains separate development.
 - [ ] Ground direct-heal targets and urgent self-care in explicit spell roles and recipient health. The November 1
@@ -236,7 +254,7 @@ is not proof that an item exists on this corpse.
   chose the exact fire center to "rest and recover gear durability" despite full health. A subsequent live
   check found him alive there with 135 health. The object advertised no repair service;
   sustained behavior still needs testing.
-- [x] Install conditional local guidance for visible fires/spell-focus objects: names, selectable flags and
+- [x] Install conditional body guidance across providers for visible fires/spell-focus objects: names, flags and
   object coordinates establish no rest/repair service or useful waypoint. Durability repair requires an
   observed repair NPC and normal `vendor_repair`; no movement ban or blanket type-8 hazard claim is added.
 - [x] Generate approach choices two yards to the actor's side of loot, quest, service and blocked-lead targets,
@@ -329,6 +347,22 @@ is not proof that an item exists on this corpse.
 - [ ] Add an explicit, natural “ask Aurenne” fallback for meaningful ambiguity, missing information or consequential irreversible choices. Ask when it helps; carry out ordinary agreed actions without constant permission.
 
 ## Verification and next pass
+
+**Body grounding and bag-reporting update — November 1:** installed manifest
+`c9506d3e1769` passed **2,279 offline checks**, preserved settings and resumed the
+Full controller after explicit hand-back without a game-server restart. Body
+facts/focused guidance now apply across providers; transport, Full profile,
+Social/full MCP detail and permissions, and Moon's hard guard retain their scope.
+The body is back on Qwen3.5-4B and Social remains GPT-6 Luna, both reasoning off.
+These are installed representation/parser changes, not proof that wandering,
+early abandonment of fights or incorrect bag claims are solved in play.
+
+The reviewed GPT-6 Luna run contained 44 rejected outputs among 126 retained
+decisions: 36 invalid JSON and 8 incomplete outputs. The exact cause remains
+unproven. Equivalent complete repeated JSON messages are now handled despite
+whitespace/key-order differences; strict whole-response validation and bounded
+content-free diagnostics support the next check without claiming that this
+parser edge caused the earlier failures.
 
 **Spirit Healer and crystal pickup — November 1:** direct MCP generation 30
 completed the normal healer dialog and separate activation. Its measured receipt

@@ -30,7 +30,7 @@ Direct MCP speech and emote controls remain available.
 
 ## Quest-object pickup
 
-The local body view now lists current corpse/chest loot candidates with their
+The native body view now lists current corpse/chest loot candidates with their
 exact GUID and matching `loot` action. Candidate corpses retain full alive/lootable
 facts. This helps the model choose an available pickup; it does not promise a
 quest drop or execute loot automatically. Pending openings are excluded from
@@ -86,7 +86,7 @@ Bonfire center to "rest and recover gear durability" despite full health. A
 later live check found him alive at that center with 135 health. Resting at a
 fire does not repair gear; durability repair requires an actual repair service
 and its normal receipt. The observation supplied no rest or repair service for
-that object. The installed local guide now explains this when visible fires or
+that object. The installed body guide now explains this when visible fires or
 spell-focus objects are present: a name, selectable flag or object-center
 coordinate establishes no repair service or useful waypoint. It does not ban
 movement or label every spell-focus object hazardous.
@@ -405,10 +405,19 @@ missing or hidden choices do not. All actions and real reward choices remain.
 
 His view also exposes backpack and bag capacity, separating general-purpose free
 space from specialty bags. The existing `equip_item` action can equip a carried
-bag or request a particular bag slot. Luna receives guidance to notice usable
+bag or request a particular bag slot. The body model receives guidance to notice usable
 bags and compare capacity; the controller does not select equipment for him.
 
-The local body view now links carried eligible gear to its exact observed slot,
+The social view now retains up to four current equipped-bag identities, matched
+by exact GUID and equipment slot. Missing or conflicting facts stay unknown.
+At the November 1 check, Small Brown Pouch (4496) was already equipped in slot
+20 with six slots; total inventory capacity was 26. A failed quest action had
+been mistaken for an equip failure in speech. Social guidance now attributes
+failures only to the matching action and item/target, using current equipment
+facts for equipment status. This verifies that bag at that check, not future
+equipment decisions.
+
+The native body view now links carried eligible gear to its exact observed slot,
 the current item or an empty slot, and an equip action. During safe downtime he
 can choose preparation instead of repeatedly waiting or moving to his own
 position. This was verified with his quest-reward gauntlets, vest, boots and
@@ -719,14 +728,13 @@ settings without a server restart.
 
 ## Models and attention
 
-Both body and social lanes now use **GPT-6 Luna** (`gpt-6-luna`), with reasoning
-set to `none`, as requested on November 1 and verified in actual requests from
-both lanes. The dated Qwen decisions and tests in this guide remain historical
-evidence from the model used at that time.
+The body is back on local **Qwen3.5-4B Q4_K_XL** (`qwen3.5-4b-action`); the social
+lane uses **GPT-6 Luna** (`gpt-6-luna`). Both use reasoning `none`, with Qwen
+thinking disabled. This is the November 1 cost choice; dated decisions and tests
+below describe the models selected at those times.
 
-The optional local **Qwen3.5-4B Q4_K_XL** launcher installed October 31 remains
-available, with alias `qwen3.5-4b-action` at `http://127.0.0.1:8082/v1` and thinking
-disabled. Starting that server does not switch either controller lane's model.
+Qwen uses the dedicated `http://127.0.0.1:8082/v1` endpoint. Its launcher remains
+available; starting that server does not switch either controller lane's model.
 Separate local model servers share the computer's GPU and memory.
 
 1. Start the game server normally.
@@ -760,7 +768,7 @@ backoff, instead of appearing to be an intentional wait.
 Derived attention facts carry their source snapshot sequence/time and distinguish
 current channels, auto-repeat shots and recent tame attempts. Native model notes
 are unverified prior proposals, kept for at most 30 seconds and invalidated when
-their underlying party/protection activity changes. The local body prompt now
+their underlying party/protection activity changes. The native body prompt now
 omits those unverified prior-proposal notes so they cannot keep reviving an old
 vendor trip or buff plan. Archives, social context and full MCP access are preserved.
 Repeating a note does not renew its age or evidence. A new runner starts with
@@ -776,7 +784,7 @@ new deliberate choice justified by fresh facts and the agreed party plan. This
 does not force following or forbid a useful detour. Consistent behavior across
 interruptions still needs playtesting.
 
-The local lead facts now include an exact optional `follow_action`. For the
+The native body lead facts now include an exact optional `follow_action`. For the
 observed Aurenne GUID 103 and one-yard setting, it was
 `{"type":"follow","target_guid":"103","follow_distance":1}`. The action binds
 the current visible, alive, friendly lead; GUIDs must come from fresh observations.
@@ -811,15 +819,37 @@ Chosen party fights now include bounded target summaries with exact GUIDs and
 optional attack actions, including neutral creatures that the party deliberately
 engaged. The agreed party role is melee damage/support. Following only positions
 him; `attack` chases and begins continuous melee. These are planner choices.
-Identical complete JSON decisions repeated in multiple response messages collapse
-to one decision; differing complete decisions remain an explicit parse failure.
+An accepted attack matched to the current living hostile victim now counts as
+an ongoing chosen pursuit before melee contact sets `in_combat`. An idle lead
+or spacing gap does not by itself make Vesper idle. The planner still chooses
+continuation, withdrawal or following, respecting fresh directions and protection.
 
-The local body receives a smaller structured view and an action-specific JSON
-schema. Critical units, protection, spells and open menus remain available;
-nearby-unit indexes and explicitly scoped item defaults reduce repetition.
-Images remain a social/observer feature and are omitted from this text-only body.
-`wow_model_context` live previews select this local view from the saved body
-configuration; `last_request` retains the actual dynamic context of a genuine call.
+Identical complete JSON decisions repeated in multiple response messages collapse
+to one decision even when whitespace or key order differs. Differing decisions
+remain a parse failure. Native responses must be one complete JSON object, with
+an optional complete JSON code fence; trailing fragments and duplicate keys are
+rejected. Rejection diagnostics record bounded framing/count/error facts, without
+provider text or reasoning.
+
+Every native body model now receives the same compact gameplay facts and focused
+guidance, whether it uses local inference or an API. This includes current lead
+messages, exact actions, actor-side approach choices and omission of old model
+proposal notes. Names and object coordinates do not establish a route; already
+holding an item is not a reason to revisit its pickup source. Unknown routes
+remain unknown. API/local transport and schema handling remain separate.
+Critical units, protection, spells and open menus remain available. The current
+Qwen body is text-only; observer/Social image policies retain their settings.
+Shared grounding changes no provider image support or full MCP context/control permissions.
+`wow_model_context` live previews select the body view from the saved configuration;
+`last_request` retains the actual dynamic context of a genuine call.
+
+The November 1 update passed **2,279 offline checks** and was installed without a
+game-server restart (manifest `c9506d3e1769`). Full control resumed after explicit
+hand-back. The reviewed Luna run had 44 rejected outputs among 126 retained
+decisions: 36 invalid JSON and 8 incomplete outputs. Their precise cause remains
+unproven; the parser correction does not establish why those outputs failed.
+Avoiding the old book, continuing chosen fights and accurate bag reporting still
+need a fresh behavior playtest. Moon's hard guard remains active.
 
 With identical frozen prompts, 4B, 9B and GPT-6 Luna chose attacks for deliberate
 party fights, restraint for taming, and follow for a passing threat. Reasoning was

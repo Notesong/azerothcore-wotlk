@@ -50,18 +50,19 @@ controller or providers or changing global import paths. Live previews show the
 current projection; recorded requests and Moon incidents retain original inputs.
 See `Vesper Commands.md` for inspection and equipment guidance notes.
 
-Both controller lanes now use GPT-6 Luna (`gpt-6-luna`), with reasoning set to
-`none`, as requested November 1 and verified in actual requests from both lanes.
-Dated Qwen decisions and test results in these guides remain historical evidence.
+The body uses local Qwen3.5-4B (`qwen3.5-4b-action`); Social uses GPT-6 Luna
+(`gpt-6-luna`). Both use reasoning `none`, with Qwen thinking disabled. This is
+the November 1 cost choice, verified in actual requests from both lanes.
+Dated decisions and test results describe the models selected at those times.
 
-The October 31 local-body update adds an optional Qwen3.5-4B launcher on loopback
+The installed Qwen3.5-4B launcher uses loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.
 `Start Qwen Body.cmd` starts that model server independently of ChatGPT; starting
 Presence's controller remains a separate choice. Starting the launcher does not
 switch either lane's selected model. Model files, runtime logs and ownership state
 under `local-qwen-private/` are excluded from this source backup.
 The private Presence changes add party/distance attention, explicit invalid-output
-reporting, addon-message filtering and a compact local body view/schema. MCP live
+reporting, addon-message filtering and a shared compact native body view. MCP live
 previews use the same pure local projection helpers when configured for that body.
 Follow-up fixes bind chosen party fights to exact target/action facts, separate
 current casts from auto-repeat shots and recent tame attempts, and expire or
