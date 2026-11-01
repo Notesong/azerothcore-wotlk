@@ -14,6 +14,9 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 - [x] Structured character, surroundings, party, spell, inventory and quest observations; native actions use observed identities and normal game checks.
 - [x] One native Full controller with separate body and social lanes. Party activity, danger, separation and useful results can attract planner attention without forcing a particular response.
 - [x] Persistent follow, movement and melee execution between decisions; bounded action history and transient notes distinguish fresh facts from old proposals.
+- [x] Expose the latest accepted controller movement intention with exact action, request ID and source sequence.
+  `server_motion_verified: false` distinguishes accepted intention from proven ongoing server movement.
+- [x] Omit unverified prior-proposal notes only from local body prompts; retain archives, social context and full MCP access.
 - [x] Persistent Moon protection, protected-creature avoidance and attributable guard incident records. Low health does not authorize retaliation; see the command guide for release rules.
 - [x] MCP inspection of full native observations, controller status and recorded model context, with exact complete request paging for newly captured calls.
 - [x] Session-bound MCP takeover, normal direct actions, action receipts and explicit hand-back to prior local controller intent; native Moon guard remains active.
@@ -29,6 +32,17 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 - [x] Ground local ready-quest candidates in currently observed questgivers, normal approach and the exact current menu/dialog step. A frozen Qwen 4B test selected the correct quest-complete action instead of reopening the NPC; reward options remain model choices.
 - [x] Verified a live autonomous hand-in of Thirst Unending at Arcanist Helion: `quest_complete` opened the reward dialog, then `quest_reward` selected the Green Chain Gauntlets; the server confirmed the reward receipt and removal from the quest log.
 - [x] Eligible party-shared quests have local acceptance handling, including while the model loop is paused. The party leader can use the fixed quest-abandon command.
+- [x] Ground carried quest starters in the exact owned item GUID, template StartQuest and normal eligibility.
+  Use normal query/accept handlers, with fresh enabled details required for explicit acceptance; auto-accept behavior remains.
+- [x] Verified Tainted Arcane Sliver (item 20483) query accepted quest 8338 at 07:05:42 UTC on November 1.
+  The quest was complete in his log; the required sliver remained until Arcanist Helion's normal turn-in.
+  The starter item is not the endgiver, and acceptance is not a reward receipt.
+- [x] Focus safe current quest work on the actual bound menu/dialog phase without removing actions or choosing
+  an item reward: menu → complete, request-items → request-reward, offer-reward → a chosen reward option.
+  Explicit empty visible choice lists permit index 0; hidden, missing or truncated lists remain unknown.
+- [x] At 07:39:51 UTC, Qwen chose quest 8338 reward index 0 at Helion. The normal receipt confirmed complete →
+  rewarded, removal from the log, sliver count 1 → 0 and money 753 → 903 copper (+150).
+  This verifies the item starter through NPC hand-in; this quest had no selectable item reward.
 - [ ] Demonstrate a full chosen quest loop: accept → pursue → recognize ready → reach the correct NPC → select a sensible reward → verify receipt.
 - [ ] Add intentional outgoing quest sharing and model-chosen abandonment where wanted; clean up obsolete goals and stale notes after sharing, abandonment or reward. Do not automatically accept everything or choose the first reward.
 
@@ -119,17 +133,46 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 - [ ] Demonstrate timely awareness of Aurenne's actual outgoing attacks/casts, meaningful assistance, range/path recovery and sensible resource use. A selected target alone is not proof she attacked.
 - [ ] Evaluate combat choices in real fights without replacing his choices with a fixed rotation or automatic attack rule. A dedicated tank/healer role remains separate development.
 
-## 11. Buff maintenance and situational utility — spell mechanics exist; behavior needs work
+## 11. Buff maintenance and situational utility — support facts installed; self/party application observed
 
 - [x] Known unit-targeted casting provides the mechanical basis for eligible self/party buffs and utility.
-- [ ] Expose grounded spell effect/target roles beyond ID, name and cooldown, so a small model need not infer healing versus damage from spell names alone.
-- [ ] Expose active buffs/debuffs and useful ability facts such as targeting, range, cost and effect, so choices do not depend only on spell names or repeated guesses.
-- [ ] Maintain appropriate seals, auras and blessings outside combat using observed effects, costs and durations; avoid wasteful recasts.
+- [x] Expose bounded non-passive applied auras with caster, duration, rank family, stacks, positive state and effect mask.
+  Coverage makes omitted/unknown observations explicit; an application with effect mask 0 is not an effective buff.
+- [x] Known positive non-healing aura spells expose target/effect, power-cost, range, reagent and rank facts.
+  Ground support candidates in observed recipients and distinguish present, suppressed, alternative-active, missing
+  and unknown effects. Same-caster aura/seal alternatives do not become a default recast loop.
+- [x] Useful support-state changes can attract out-of-combat attention; ordinary duration ticks do not repeatedly
+  wake the planner. Loot/trade continuation and immediate combat/party needs retain priority.
+- [x] Exclude temporary spells shorter than 60 seconds and Honorless Target effects (`aura_type: 159`) from
+  routine upkeep candidates. Generic cast choices remain available for deliberate situational use.
+- [x] Around 06:30 UTC, Qwen autonomously cast Devotion Aura (465), Blessing of Might (19740) and Seal of Righteousness
+  (21084) on Vesper. Fresh aura rows had nonzero effect masks; subsequent body output waited with upkeep complete.
+- [x] Verify Aurenne's own fresh aura rows: Devotion Aura (465, effect mask 1) and Blessing of Might
+  (19740, effect mask 3), both from Vesper (caster GUID 102). A self blessing alone was not used as proof.
+- [ ] Demonstrate continued useful upkeep, expiry recovery and party rejoining without unnecessary recasts
+  or combat distraction. Repeated casts were still observed; successful party application does not solve that behavior.
+- [x] Extend the native beneficial guard to positive persistent area-aura sources under Moon, uncertain protection
+  or active/recent taming. Cancel only owned sources through normal aura removal; other casters' sources remain.
+  Full cast choices and violation auditing remain available.
+- [ ] Live-test the new Moon/tame area-source cancellation and foreign-caster preservation cases.
+- [ ] Broaden grounded role facts for direct healing, damage and utility abilities beyond the current support subset.
 - [ ] Demonstrate interrupt, cleanse, stun and emergency healing when actually available and appropriate. Respect protection/taming restrictions and verify the spell's real outcome.
 
 ## 12. Travel, hearth, taxis, inn binding and mounts — partial/not built
 
 - [x] Short-range same-map pathfinding and persistent following provide local travel mechanics.
+- [x] Distinguish accepted movement intention from selected-target inspection and unverified historical proposals.
+  An accepted follow supersedes a prior NPC trip; any new detour remains a deliberate model choice based on fresh facts.
+- [x] Ground a normal follow attempt in the exact current visible, friendly, alive configured lead and saved spacing.
+  Keep the model field `follow_distance`, independent of an old selected NPC or a different bot party leader.
+- [x] Keep latest recorded lead speech salient with its actual authorship/source facts; server sender GUIDs require
+  matching event evidence. No follow keyword automatically executes movement or substitutes for the model's choice.
+- [x] Track request-bound fresh movement progress and suppress wake loops from repeated verified already-there
+  results. Meaningful chat/danger/state changes still wake; uncertain or genuinely progressing moves are distinct.
+- [x] Aurenne confirmed the live walk-away test: he was following and staying with her. Fresh 07:41:28 UTC context
+  confirmed persistent follow of GUID 103 at one yard while she moved; local waiting preserved movement.
+- [ ] Verify long-term follow/old-NPC oscillation and recovery across interruptions. The identical frozen case
+  also changed from trainer movement to follow, but one live success does not establish general reliability.
 - [x] Failed moves retain exact destinations, source sequence and bounded recent failure counts for 60 seconds. Planner guidance distinguishes a rejected path from movement and repeated current-position moves from useful travel; ordinary navigation checks remain in force.
 - [ ] Add deliberate hearthstone use, known taxi routes/selection and intentional inn binding, with observed availability, costs and resulting destination.
 - [ ] Add reliable mount/dismount state and controls, travel/combat transitions and destination verification. Existing spell casting is not a complete travel subsystem.
@@ -193,6 +236,9 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 ## 20. Continuity, intentions and asking for help — partial
 
 - [x] Imported permitted Presence context, recent conversation, bounded session notes and optional observer images support continuity. Images require a bound renderer and describe that observer's view.
+- [x] Focus safe local carried-item quest decisions before routine buff/service guidance while retaining complete
+  dynamic observations and the allowed action schema. Matching fresh item details can advance; danger, travel,
+  protected activity and other active dialogs keep the full guide.
 - [ ] Maintain useful chosen goals through interruptions and discard stale/inconsistent claims using fresh observations and action receipts. Keep the payload small enough for timely decisions.
 - [ ] Integrate durable adventure memory for this native Full controller; current session notes/scene ledger are not a complete persistent Chronicle, and starting a new run does not prove the previous goal was restored.
 - [ ] Add an explicit, natural “ask Aurenne” fallback for meaningful ambiguity, missing information or consequential irreversible choices. Ask when it helps; carry out ordinary agreed actions without constant permission.
@@ -221,6 +267,39 @@ NPCs are visible. The clean restart preserved 758 copper and the three learned
 spells. No trainer was in the post-restart observation, so actual class/title
 packet verification awaits the next encounter; current offers remain separate
 from default-provider metadata.
+
+The buff update is installed with 1,774 offline checks passed. Live self-aura
+verification around 06:30 UTC showed Devotion Aura, Blessing of Might and Seal
+of Righteousness active with nonzero effect masks after autonomous casts, then
+an upkeep-complete wait. Aurenne's own aura rows subsequently confirmed Devotion
+Aura (465, mask 1) and Blessing of Might (19740, mask 3), caster GUID 102. Routine
+upkeep now excludes short temporary spells and Honorless Target effects, while
+ordinary casting remains available. Unnecessary repeated buffs were still
+observed; consistent future upkeep remains open. The new guarded area-source
+cases still need live Moon/tame tests.
+
+Normal carried-item quest support is installed. On November 1 at 07:05:42 UTC,
+querying item 20483 accepted quest 8338 through normal auto-accept behavior.
+The quest was complete in the log, with the sliver retained until Helion's turn-in.
+At 07:39:51 UTC the updated Qwen controller chose the actual reward-page action,
+`quest_reward` index 0. The normal receipt confirmed rewarded status, log removal,
+sliver count 1 → 0 and 150 copper received (753 → 903). This quest's lack of an
+item choice does not verify broader item-reward selection or the entire chosen
+accept/objective/reward loop. The local quiet-item and current-phase guides and
+accepted-controller-intent facts improve progress without reviving historical NPC trips.
+Unverified proposal notes are omitted only from local body prompts; archives,
+social context and full MCP access remain.
+
+The installed follow/quest-phase controller package passed **2,065 offline
+checks**, preserved settings and Full running state, and needed no game-server
+restart. With all choices retained, frozen before/after cases changed a trainer
+waypoint to follow Aurenne GUID 103 at one yard, and repeated quest-complete on
+the reward page to quest-reward index 0. No game actions ran in those replays.
+The live reward above succeeded. Aurenne then confirmed he was following and
+staying with her; fresh 07:41:28 UTC context confirmed persistent follow of GUID
+103 at one yard while she moved, with local waiting preserving motion. This
+single walk-away test passed. Long-term follow/old-NPC oscillation, repeated
+buffs and new Moon/tame guard cases remain open.
 
 Earlier October 31 pickup verification used worldserver `e009657c1083`, with
 emotes and catch-up XP retained. Pickup work passed 61 isolated native checks,

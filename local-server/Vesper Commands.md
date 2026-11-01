@@ -47,7 +47,8 @@ orb and scroll pickups were verified at 1/1 each; Solanian's Belongings is ready
 to turn in. Generic object line of sight is diagnostic for chest pickup; the
 normal Opening handler decides access. `loot` performs Opening internally,
 including when an informative `opening_spell_id` is present in the observation.
-Carried quest-item activation remains on the development checklist.
+Generic carried quest-item activation remains on the development checklist;
+quest-starting carried items are supported as described below.
 
 ## Custom in-game commands
 
@@ -85,6 +86,9 @@ with Vesper. Apply it before fighting or starting a tame.
   authorize retaliation.
 - Human party healing and beneficial assistance are withheld while protection
   is active. His reflection mechanics are disabled too.
+- Positive area-aura sources owned by Vesper are also cancelled during Moon,
+  uncertain protection or an active/recent tame, so a self aura cannot keep
+  assisting through propagation. Other casters' aura sources are not changed.
 - The stored creature identity survives death, lost visibility, disconnects and
   party changes. Low health and failed tame attempts do not release it.
 - Other players, their pets and other bots retain their normal behavior.
@@ -141,6 +145,7 @@ model-context inspection. Capture or storage failures are reported explicitly.
 | `/p Vesper, follow beside me.` | Asks his planner to follow you; his saved spacing is one yard beside you. |
 | `/p Vesper, wait here a moment.` | Asks his planner to stay put. |
 | `/p Vesper, turn in Thirst Unending with Arcanist Helion.` | Asks him to approach the observed questgiver and advance the quest's normal dialog and reward steps. |
+| `/p Vesper, check whether anything in your bags starts a quest.` | Asks him to inspect carried quest starters and decide whether their offers fit the adventure. |
 | `/p Vesper, check the trainer and see what you can afford.` | Asks him to inspect a nearby trainer's offers and choose training. |
 | `/p Vesper, compare that new sword with your current weapon.` | Asks him to inspect carried gear and decide what to equip. |
 | `/p Vesper, check your carried gear and equip useful upgrades and bags.` | Asks him to review available equipment during safe downtime. |
@@ -205,6 +210,47 @@ These action names are internal planner controls, not slash commands to type:
 and `gossip_select`. Ordinary requests above go through his models and need the
 controller unpaused.
 
+## Buffs, auras and blessings
+
+Installed November 1. Vesper can now observe bounded non-passive aura lists,
+including caster, duration, rank family and active-effect masks. Known support
+spells expose their actual target roles, effects, power cost, range, reagents
+and cooldowns. Learned spells and currently active effects are separate facts.
+
+Devotion Aura is cast on himself and can propagate to nearby party members.
+Blessing of Might needs a separate cast on each intended recipient; having it
+on Vesper does not establish that Aurenne has it. A cast request alone does not
+prove application: check the recipient's fresh aura facts.
+
+| Effect state | Meaning |
+| --- | --- |
+| `present` | A matching effective aura or rank is observed; avoid redundant recasts. |
+| `suppressed` | The application exists with no active effects; blindly recasting is not a fix. |
+| `alternative_active` | His own other aura/seal in a verified exclusive group is active; switching is a choice. |
+| `missing` | Complete observations show no matching effect; a ready cast may be offered as a choice. |
+| `unknown` | Observations are unavailable, partial or uncertain; this does not establish absence. |
+
+Useful effect changes can wake the body planner during safe downtime. Duration
+ticks do not summon a new decision each time. Buff-change wakes defer to active
+loot/trade waits, combat and party priorities. Routine upkeep candidates exclude
+temporary spells shorter than 60 seconds and Honorless Target effects
+(`aura_type: 159`). Those spells remain ordinary cast choices for situations
+where they are useful; a missing defensive shield is not unfinished routine upkeep.
+This is not a fixed buff rotation.
+
+Live verification around 06:30 UTC confirmed Vesper autonomously activated
+Devotion Aura, Blessing of Might and Seal of Righteousness on himself, then
+waited with upkeep complete. Aurenne's fresh aura list also confirmed Devotion
+Aura (465, effect mask 1) and Blessing of Might (19740, effect mask 3), both from
+Vesper (caster GUID 102). Party application is verified. Unnecessary repeated
+casts have still occurred; consistent upkeep and expiry recovery need playtesting.
+
+Moon/taming protection still governs beneficial spells, including self-targeted
+area auras. The hard guard blocks new protected area assistance and cancels
+Vesper-owned positive area-aura sources; it leaves other casters' sources alone.
+Cast choices stay visible for deliberate decisions and attempted violations
+remain auditable. These new guarded area-aura cases still need a live playtest.
+
 ## Quest dialogs, rewards and bags
 
 Installed October 31, 2026. Vesper receives current NPC quest dialogs, advertised reward choices and item
@@ -213,11 +259,32 @@ names and nearby questgiver relations. The body planner chooses whether to accep
 or select a reward. A dialog opening is distinct from receiving a reward.
 
 Its internal planner actions are `quest_query`, `quest_accept`, `quest_complete`,
-`quest_request_reward` and `quest_reward`. They use observed NPC/quest identities;
+`quest_request_reward` and `quest_reward`. They use observed source/quest identities;
 reward selection requires the exact advertised zero-based index. These are not
 WoW slash commands. Normal quest handlers still check eligibility, objectives,
 required items, money and inventory capacity. Querying a quest can trigger the
 game's ordinary auto-accept behavior, so it is not a read-only MCP operation.
+
+### Quest-starting carried items
+
+A carried item's `start_quest` facts identify its offered quest and current
+normal eligibility. The local view links the exact owned item GUID and quest ID
+to `quest_query`; fresh enabled details can then offer `quest_accept`. Reading
+the item does not require travelling to a vendor or NPC. During safe downtime,
+the local guide highlights this opportunity before optional buff or service work;
+Vesper still chooses whether it fits the current party plan.
+
+On November 1 at 07:05:42 UTC, a normal query of Tainted Arcane Sliver (item 20483)
+accepted quest 8338 through the game's normal auto-accept behavior. The quest was
+verified complete in his log. The sliver remained because the turn-in required
+one; its continued presence was not an acceptance failure. The item started the
+quest; Arcanist Helion was the turn-in NPC.
+
+At 07:39:51 UTC, Qwen chose `quest_reward` for Helion and quest 8338 with the
+advertised index 0. The normal receipt confirmed the quest became rewarded and
+left the log, the sliver count fell 1 → 0, and money rose 753 → 903 copper
+(150 copper received). This quest had no selectable item reward. Generic
+quest-item activation and broader reward-selection judgment remain separate.
 
 Turning in takes several decisions: `interact` opens the NPC's menu;
 `quest_complete` selects the held quest and opens its turn-in dialog;
@@ -227,6 +294,13 @@ does not finish the quest. The local body view now links each ready held quest
 to a currently observed questgiver and its exact next menu/dialog action, with
 the advertised reward indices kept as choices for the planner. Current positions
 support ordinary local approach; this does not locate distant unseen NPCs.
+
+During safe current-dialog work, a short guide emphasizes the actual phase:
+current NPC menu → `quest_complete`; ready `request_items` → `quest_request_reward`;
+`offer_reward` → a chosen advertised `quest_reward` option. It discourages
+reopening an earlier phase after advancing. An explicitly empty, complete,
+visible choice list permits index 0 to claim the normal XP/money/fixed rewards;
+missing or hidden choices do not. All actions and real reward choices remain.
 
 His view also exposes backpack and bag capacity, separating general-purpose free
 space from specialty bags. The existing `equip_item` action can equip a carried
@@ -505,9 +579,53 @@ backoff, instead of appearing to be an intentional wait.
 Derived attention facts carry their source snapshot sequence/time and distinguish
 current channels, auto-repeat shots and recent tame attempts. Native model notes
 are unverified prior proposals, kept for at most 30 seconds and invalidated when
-their underlying party/protection activity changes. Repeating the same note does
-not renew its age or evidence. A new runner starts with fresh working notes;
-the original configuration and complete decision ledger remain preserved.
+their underlying party/protection activity changes. The local body prompt now
+omits those unverified prior-proposal notes so they cannot keep reviving an old
+vendor trip or buff plan. Archives, social context and full MCP access are preserved.
+Repeating a note does not renew its age or evidence. A new runner starts with
+fresh working notes; the original configuration and complete decision ledger remain.
+
+`controller.accepted_movement_intent` records the latest accepted controller
+choice, with `provenance: accepted_controller_intention`, its `source_sequence`,
+`request_id`, exact submitted `action` and result state. It explicitly reports
+`server_motion_verified: false`: an accepted intention is not proof that movement
+is still running. Selecting an NPC can be inspection, not a travel goal. An
+accepted follow supersedes the previous NPC trip; returning there should be a
+new deliberate choice justified by fresh facts and the agreed party plan. This
+does not force following or forbid a useful detour. Consistent behavior across
+interruptions still needs playtesting.
+
+The local lead facts now include an exact optional `follow_action`. For the
+observed Aurenne GUID 103 and one-yard setting, it was
+`{"type":"follow","target_guid":"103","follow_distance":1}`. The action binds
+the current visible, alive, friendly lead; GUIDs must come from fresh observations.
+Configured Aurenne remains the lead even if another bot leads the party.
+Following a person is different from moving to an old NPC's coordinates.
+
+Her latest recorded message appears beside these facts. Actual matching server
+events can establish `server_sender_guid` authorship; otherwise the message keeps
+its recorded speaker name without inventing a sender GUID. Known timestamps can
+establish order; transcript order alone is labelled as such. The model reads the
+request and chooses a response; no keyword rule automatically executes follow.
+
+Quiet party-spacing guidance takes precedence over optional service/buff work
+when a gap opens. A nearby stationary follow still allows ordinary upkeep and
+carried-item interactions. Completed movement is past execution, not a standing
+goal. Fresh position evidence also distinguishes real progress from repeatedly
+requesting a destination already reached. Repeated verified already-there results
+no longer create their own body wake loop; new chat, danger and other meaningful
+changes still receive attention.
+
+Frozen before/after tests changed the same stuck case from a trainer waypoint to
+following Aurenne (GUID 103, one yard), and the same reward-page case from
+`quest_complete` to `quest_reward` index 0. No game actions ran in those replays.
+The live quest reward above then succeeded. Aurenne reported that he was following
+and staying with her; fresh 07:41:28 UTC context confirmed persistent follow of
+GUID 103 at one yard while she moved, with a local wait preserving that motion.
+This single live test passed; long-term oscillation/recovery still needs playtesting.
+The installed controller package passed **2,065 offline checks**,
+preserved settings and running state, and needed no game-server restart.
+
 Chosen party fights now include bounded target summaries with exact GUIDs and
 optional attack actions, including neutral creatures that the party deliberately
 engaged. The agreed party role is melee damage/support. Following only positions

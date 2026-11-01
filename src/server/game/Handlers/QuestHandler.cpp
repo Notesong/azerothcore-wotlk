@@ -224,13 +224,15 @@ void WorldSession::HandleQuestgiverQueryQuestOpcode(WorldPacket& recvData)
         if (!_player->CanTakeQuest(quest, true))
             return;
 
+        ObjectGuid const sourceGuid = object->GetGUID();
         if (quest->IsAutoAccept() && _player->CanAddQuest(quest, true))
             _player->AddQuestAndCheckCompletion(quest, object);
 
         if (quest->IsAutoComplete() || !quest->GetQuestMethod())
-            _player->PlayerTalkClass->SendQuestGiverRequestItems(quest, object->GetGUID(), _player->CanCompleteQuest(quest->GetQuestId()), true);
+            _player->PlayerTalkClass->SendQuestGiverRequestItems(quest, sourceGuid,
+                _player->CanCompleteQuest(quest->GetQuestId()), true);
         else
-            _player->PlayerTalkClass->SendQuestGiverQuestDetails(quest, object->GetGUID(), true);
+            _player->PlayerTalkClass->SendQuestGiverQuestDetails(quest, sourceGuid, true);
     }
 }
 

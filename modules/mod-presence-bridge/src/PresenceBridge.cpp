@@ -189,7 +189,23 @@ char const* QuestGiverStatusName(QuestGiverStatus status)
     }
 }
 
-Json::object UnitState(Unit const* unit)
+std::string PerCasterBuffGroup(SpellInfo const* info)
+{
+    if (!info || info->SpellFamilyName != SPELLFAMILY_PALADIN
+        || !info->IsAuraExclusiveBySpecificPerCasterWith(info))
+        return "";
+    switch (info->GetSpellSpecific())
+    {
+        case SPELL_SPECIFIC_SEAL:
+            return "paladin_seal";
+        case SPELL_SPECIFIC_AURA:
+            return "paladin_aura";
+        default:
+            return "";
+    }
+}
+
+Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
 {
     Json::array services;
     bool vendor = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_VENDOR);
@@ -258,7 +274,106 @@ Json::object UnitState(Unit const* unit)
             }
         }
     }
+    Json::array auras;
+    uint32 totalAuras = 0;
+    uint32 passiveAuras = 0;
+    uint32 unavailableAuras = 0;
+    for (auto const& [id, application] : unit->GetAppliedAuras())
+    {
+        Aura const* aura = application ? application->GetBase() : nullptr;
+        SpellInfo const* info = aura ? aura->GetSpellInfo() : nullptr;
+        if (!info)
+        {
+            ++totalAuras;
+            ++unavailableAuras;
+            continue;
+        }
+        if (info->IsPassive())
+        {
+            ++passiveAuras;
+            continue;
+        }
+        ++totalAuras;
+        if (auras.size() >= auraLimit)
+            continue;
+        std::string name = info->SpellName[0] ? info->SpellName[0] : "";
+        utf8truncate(name, 96);
+        Json::object facts{{"spell_id", info->Id}, {"name", std::move(name)},
+            {"caster_guid", std::to_string(aura->GetCasterGUID().GetRawValue())},
+            {"duration_ms", aura->GetDuration()}, {"max_duration_ms", aura->GetMaxDuration()},
+            {"positive", application->IsPositive()}, {"stacks", aura->GetStackAmount()},
+            {"effect_mask", application->GetEffectMask()},
+            {"rank_chain_id", sSpellMgr->GetFirstSpellInChain(info->Id)},
+            {"spell_specific", uint32(info->GetSpellSpecific())}};
+        std::string group = PerCasterBuffGroup(info);
+        if (!group.empty())
+            facts["exclusive_group"] = std::move(group);
+        auras.emplace_back(std::move(facts));
+    }
+    result["auras_coverage"] = Json::object{{"total", totalAuras}, {"included", auras.size()},
+        {"omitted", totalAuras - auras.size()}, {"excluded_passive", passiveAuras},
+        {"unavailable", unavailableAuras}, {"limit", auraLimit}};
+    result["auras"] = std::move(auras);
     return result;
+}
+
+bool PositiveAreaAura(SpellInfo const* info)
+{
+    return info && info->IsPositive() && std::any_of(info->GetEffects().begin(), info->GetEffects().end(),
+        [](SpellEffectInfo const& effect) { return effect.IsAreaAuraEffect(); });
+}
+
+std::optional<Json::object> BuffSpellFacts(Player* player, SpellInfo const* info)
+{
+    if (!info->IsPositive() || info->IsPassive())
+        return std::nullopt;
+    bool appliesAura = false;
+    bool healing = false;
+    bool areaAura = false;
+    Json::array effects;
+    for (auto const& effect : info->GetEffects())
+    {
+        if (!effect.IsEffect())
+            continue;
+        appliesAura = appliesAura || effect.IsAura();
+        areaAura = areaAura || effect.IsAreaAuraEffect();
+        healing = healing || effect.IsEffect(SPELL_EFFECT_HEAL) || effect.IsEffect(SPELL_EFFECT_HEAL_PCT)
+            || effect.IsEffect(SPELL_EFFECT_HEAL_MAX_HEALTH) || effect.IsAura(SPELL_AURA_PERIODIC_HEAL)
+            || effect.IsAura(SPELL_AURA_OBS_MOD_HEALTH);
+        effects.emplace_back(Json::object{{"index", effect.EffectIndex}, {"effect_id", effect.Effect},
+            {"aura_type", uint32(effect.ApplyAuraName)}, {"target_a", uint32(effect.TargetA.GetTarget())},
+            {"target_b", uint32(effect.TargetB.GetTarget())}, {"area_aura", effect.IsAreaAuraEffect()}});
+    }
+    if (!appliesAura || healing)
+        return std::nullopt;
+    uint32 targetMask = info->GetExplicitTargetMask();
+    uint32 friendlyMask = TARGET_FLAG_UNIT_ALLY | TARGET_FLAG_UNIT_PARTY | TARGET_FLAG_UNIT_RAID;
+    std::string targetMode = "other";
+    if (!targetMask)
+        targetMode = "self";
+    else if ((targetMask & friendlyMask) && !(targetMask & ~(friendlyMask | TARGET_FLAG_UNIT)))
+        targetMode = "friendly_unit";
+    Json::array reagents;
+    for (uint32 index = 0; index < MAX_SPELL_REAGENTS; ++index)
+        if (info->Reagent[index] > 0 && info->ReagentCount[index])
+        {
+            uint32 itemId = uint32(info->Reagent[index]);
+            reagents.emplace_back(Json::object{{"item_id", itemId}, {"count", info->ReagentCount[index]},
+                {"current", player->GetItemCount(itemId, false)}});
+        }
+    Json::object facts{{"rank_chain_id", sSpellMgr->GetFirstSpellInChain(info->Id)},
+        {"rank", sSpellMgr->GetSpellRank(info->Id)}, {"positive", true}, {"applies_aura", true},
+        {"spell_specific", uint32(info->GetSpellSpecific())},
+        {"area_aura", areaAura}, {"target_mode", targetMode}, {"explicit_target_mask", targetMask},
+        {"effects", std::move(effects)}, {"power_type", info->PowerType},
+        {"power_cost", info->CalcPowerCost(player, info->GetSchoolMask())},
+        {"range_min", info->GetMinRange(true)}, {"range_max", info->GetMaxRange(true, player)},
+        {"duration_ms", info->GetDuration()}, {"reagents", std::move(reagents)},
+        {"source", "known_spell_info"}};
+    std::string group = PerCasterBuffGroup(info);
+    if (!group.empty())
+        facts["exclusive_group"] = std::move(group);
+    return facts;
 }
 
 bool CarriedItem(Player const* player, Item const* item)
@@ -278,6 +393,20 @@ char const* EquipmentSlotName(uint8 slot)
         "wrists", "hands", "finger_1", "finger_2", "trinket_1", "trinket_2", "back", "main_hand", "off_hand",
         "ranged", "tabard", "bag_1", "bag_2", "bag_3", "bag_4"};
     return slot < INVENTORY_SLOT_BAG_END ? names[slot] : "";
+}
+
+bool CanAddQuestSilently(Player* player, Quest const* quest)
+{
+    // CanAddQuest(false) still sends item-capacity errors and a failure sound.
+    // Keep observations pure while applying the same normal capacity checks.
+    if (!quest || !player->SatisfyQuestLog(false))
+        return false;
+    if (!quest->GetSrcItemId())
+        return true;
+    ItemPosCountVec destination;
+    InventoryResult result = player->CanStoreNewItem(NULL_BAG, NULL_SLOT, destination,
+        quest->GetSrcItemId(), quest->GetSrcItemCount());
+    return result == EQUIP_ERR_OK || result == EQUIP_ERR_CANT_CARRY_MORE_OF_THIS;
 }
 
 Json::object ItemFacts(Player* player, ItemTemplate const* info, Item* item = nullptr)
@@ -320,6 +449,29 @@ Json::object ItemFacts(Player* player, ItemTemplate const* info, Item* item = nu
         result["bag"] = item->GetBagSlot();
         result["slot"] = item->GetSlot();
         result["equipped"] = Player::IsEquipmentPos(item->GetPos());
+        if (CarriedItem(player, item))
+        {
+            result["start_quest"] = nullptr;
+            if (uint32 questId = info->StartQuest)
+            {
+                Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+                Json::object start{{"id", questId}, {"source", "item_template.StartQuest"},
+                    {"status", uint32(player->GetQuestStatus(questId))},
+                    {"status_name", QuestStatusName(player->GetQuestStatus(questId))},
+                    {"in_log", player->FindQuestSlot(questId) < MAX_QUEST_LOG_SIZE},
+                    {"rewarded", player->IsQuestRewarded(questId)},
+                    {"can_take", quest && player->CanTakeQuest(quest, false)},
+                    {"can_add", CanAddQuestSilently(player, quest)},
+                    {"template_available", quest != nullptr}};
+                if (quest)
+                {
+                    std::string title = quest->GetTitle();
+                    utf8truncate(title, 128);
+                    start["title"] = std::move(title);
+                }
+                result["start_quest"] = std::move(start);
+            }
+        }
         if (Player::IsEquipmentPos(item->GetPos()))
         {
             result["equipment_slot"] = item->GetSlot();
@@ -1333,8 +1485,17 @@ public:
         return found == frames.end() ? std::nullopt : std::optional<QuestFrame>(found->second);
     }
 
-    WorldObject* QuestSource(Player* player, ObjectGuid guid)
+    Object* QuestSource(Player* player, ObjectGuid guid, uint32 questId = 0)
     {
+        if (guid.IsItem())
+        {
+            Item* item = player->GetItemByGuid(guid);
+            if (!CarriedItem(player, item) || !item->GetTemplate()->StartQuest
+                || (questId && item->GetTemplate()->StartQuest != questId)
+                || !player->CanInteractWithQuestGiver(item))
+                return nullptr;
+            return item;
+        }
         WorldObject* source = ObjectAccessor::GetWorldObject(*player, guid);
         if (!source || (!source->IsCreature() && !source->IsGameObject()) || !player->CanSeeOrDetect(source)
             || !player->IsWithinDistInMap(source, INTERACTION_DISTANCE) || !player->IsWithinLOSInMap(source)
@@ -1346,7 +1507,7 @@ public:
     bool QuestFrameAvailable(Player* player, QuestFrame const& frame)
     {
         return std::chrono::steady_clock::now() - frame.opened <= std::chrono::minutes(2)
-            && QuestSource(player, frame.source);
+            && QuestSource(player, frame.source, frame.quest);
     }
 
     Json::object QuestRelations(Player* player, WorldObject* source)
@@ -1410,7 +1571,7 @@ public:
         if (!frame)
             return result;
         bool available = QuestFrameAvailable(player, *frame);
-        WorldObject* source = available ? QuestSource(player, frame->source) : nullptr;
+        Object* source = available ? QuestSource(player, frame->source, frame->quest) : nullptr;
         for (auto const& value : frame->rows)
         {
             Json::object row = value.as_object();
@@ -1989,9 +2150,24 @@ public:
             found->second.phases.pop_front();
     }
 
-    bool BlocksBeneficial(Unit const* source, Unit const* target)
+    bool AreaBenefitsWithheld(Player* owner)
+    {
+        if (!owner)
+            return false;
+        if (ProtectedGuid(owner) || ProtectionUncertain(owner))
+            return true;
+        TameAttempt attempt;
+        bool active = false;
+        return TameFor(owner, attempt, active);
+    }
+
+    bool BlocksBeneficial(Unit const* source, Unit const* target, SpellInfo const* info = nullptr)
     {
         Player* owner = OwnedPlayer(source);
+        // A self-targeted persistent area aura can later assist the protected
+        // human without passing through the original spell's target filter.
+        if (owner && PositiveAreaAura(info) && AreaBenefitsWithheld(owner))
+            return true;
         Player const* human = target ? target->ToPlayer() : nullptr;
         Group const* group = owner ? owner->GetGroup() : nullptr;
         ProtectionBinding binding = BindingFor(owner);
@@ -2009,17 +2185,22 @@ public:
 
     bool BlocksSpell(Spell* spell, Unit const* target)
     {
-        if (!spell || !target)
+        if (!spell)
             return false;
         SpellInfo const* info = spell->GetSpellInfo();
+        Unit* actual = spell->GetCaster()->ToUnit();
+        Unit* original = spell->GetOriginalCaster();
+        if (PositiveAreaAura(info)
+            && (BlocksBeneficial(actual, target, info) || BlocksBeneficial(original, target, info)))
+            return true;
+        if (!target)
+            return false;
         bool reflection = info->HasAura(SPELL_AURA_REFLECT_SPELLS)
             || info->HasAura(SPELL_AURA_REFLECT_SPELLS_SCHOOL);
         Player* receiver = OwnedPlayer(target);
         // This is the protected character declining reflection on itself, not ownership of the buff caster.
         if (reflection && receiver && (ProtectedGuid(receiver) || ProtectionUncertain(receiver)))
             return true;
-        Unit* actual = spell->GetCaster()->ToUnit();
-        Unit* original = spell->GetOriginalCaster();
         if (BlocksDamage(actual, target) || BlocksDamage(original, target))
             return true;
         Player* owner = OwnedPlayer(actual);
@@ -2029,7 +2210,7 @@ public:
             return true;
         return (info->IsPositive() || info->HasEffect(SPELL_EFFECT_HEAL)
             || info->HasEffect(SPELL_EFFECT_HEAL_PCT) || info->HasEffect(SPELL_EFFECT_HEAL_MAX_HEALTH))
-            && (BlocksBeneficial(actual, target) || BlocksBeneficial(original, target));
+            && (BlocksBeneficial(actual, target, info) || BlocksBeneficial(original, target, info));
     }
 
     void GuardIntervention(Unit const* source, Unit const* target, char const* hook, char const* reason,
@@ -2107,7 +2288,7 @@ public:
             bool reflection = info->HasAura(SPELL_AURA_REFLECT_SPELLS)
                 || info->HasAura(SPELL_AURA_REFLECT_SPELLS_SCHOOL);
             char const* reason = reflection ? "reflection_declined"
-                : (BlocksBeneficial(actual, target) || BlocksBeneficial(original, target))
+                : (BlocksBeneficial(actual, target, info) || BlocksBeneficial(original, target, info))
                     ? "beneficial_intervention_withheld" : "protected_target_effect";
             GuardIntervention(actual ? actual : original, target, hook, reason, info->Id, spell->m_cast_count, owner);
         }
@@ -2444,6 +2625,18 @@ private:
             if (reflecting)
                 GuardIntervention(unit, unit, "local_reflection_cancel", "reflection_declined");
         }
+        if (owner && AreaBenefitsWithheld(owner))
+            unit->RemoveOwnedAuras([this, unit, owner](Aura const* aura)
+            {
+                Unit* caster = aura->GetCaster();
+                bool ownedCaster = aura->GetCasterGUID() == owner->GetGUID()
+                    || (caster && OwnedPlayer(caster) == owner);
+                if (aura->GetOwner() != unit || !ownedCaster || !PositiveAreaAura(aura->GetSpellInfo()))
+                    return false;
+                GuardIntervention(caster ? caster : owner, unit, "local_party_aura_cancel",
+                    "beneficial_intervention_withheld", aura->GetId());
+                return true;
+            });
         bool attacking = unit->GetVictim() && BlocksDamage(unit, unit->GetVictim());
         if (attacking)
         {
@@ -3602,7 +3795,7 @@ private:
             return Error(request, "character_offline",
                 actor == _actors.end() ? "Character is offline" : actor->second->phase);
         }
-        Json::object self = UnitState(player);
+        Json::object self = UnitState(player, 32);
         uint64 sequence = ++_snapshotSequence;
         std::string timestamp = Timestamp();
         self["sequence"] = sequence;
@@ -3844,7 +4037,10 @@ private:
             if (spells.size() == 256)
                 break;
             uint32 delay = player->GetSpellCooldownDelay(id);
-            spells.push_back(Json::object{{"id", id}, {"name", info->SpellName[0]}, {"cooldown_ms", delay}});
+            Json::object facts{{"id", id}, {"name", info->SpellName[0]}, {"cooldown_ms", delay}};
+            if (auto buff = BuffSpellFacts(player, info))
+                facts["buff"] = std::move(*buff);
+            spells.emplace_back(std::move(facts));
             if (delay)
                 cooldowns.push_back(Json::object{{"spell_id", id}, {"remaining_ms", delay}});
         }
@@ -4245,19 +4441,23 @@ private:
     }
 
     Json::object QuestAction(Json::object const& request, Json::object const& action, Actor& actor,
-        Player* player, WorldObject* source, std::string const& type)
+        Player* player, Object* source, std::string const& type)
     {
         if (!action.if_contains("target_guid") || Text(action, "target_guid").empty())
             return Error(request, "invalid_target", "Quest actions require an explicit advertised target_guid");
-        if (!QuestSource(player, source->GetGUID()))
-            return Error(request, "invalid_questgiver", "Questgiver must be visible and normally interactable nearby");
         ObjectGuid sourceGuid = source->GetGUID();
         uint32 questId = Unsigned(action, "quest_id");
         Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
         if (!questId || !quest)
             return Error(request, "invalid_quest", "Choose a positive advertised quest_id");
+        if (!QuestSource(player, sourceGuid, questId))
+            return Error(request, "invalid_questgiver", "Use a nearby questgiver or the current carried quest starter");
+        if (source->IsItem() && type != "query_quest" && type != "accept_quest")
+            return Error(request, "questgiver_mismatch", "An item starter only supports query and acceptance");
         auto menu = CurrentQuestFrame(actor.session.get(), false);
-        bool advertised = false;
+        // An owned item's exact StartQuest is advertised by its inventory facts;
+        // normal item quest opening has no preceding NPC gossip menu.
+        bool advertised = source->IsItem() && type == "query_quest" && source->hasQuest(questId);
         if (menu && menu->source == source->GetGUID() && QuestFrameAvailable(player, *menu))
             for (auto const& row : menu->rows)
                 if (Unsigned(row.as_object(), "id") == questId)
@@ -4614,6 +4814,13 @@ private:
             player->SetSelection(ObjectGuid::Empty);
             return Response(request, true, {{"status", "completed"}, {"target_guid", "0"}});
         }
+        if (guid.IsItem() && (type == "query_quest" || type == "accept_quest"))
+        {
+            Object* source = QuestSource(player, guid, Unsigned(action, "quest_id"));
+            if (!source)
+                return Error(request, "invalid_quest_item", "Use an owned carried item with its exact StartQuest");
+            return QuestAction(request, action, actor, player, source, type);
+        }
         WorldObject* object = guid ? ObjectAccessor::GetWorldObject(*player, guid) : nullptr;
         if (type == "cast" && guidText.empty() && !guid)
             object = player;
@@ -4689,7 +4896,7 @@ private:
             if (blockedDamage
                 || ((info->IsPositive() || info->HasEffect(SPELL_EFFECT_HEAL)
                     || info->HasEffect(SPELL_EFFECT_HEAL_PCT) || info->HasEffect(SPELL_EFFECT_HEAL_MAX_HEALTH))
-                    && BlocksBeneficial(player, unit)))
+                    && BlocksBeneficial(player, unit, info)))
             {
                 GuardIntervention(player, unit, "action_cast",
                     blockedDamage ? "protected_target_effect" : "beneficial_intervention_withheld", spell);
