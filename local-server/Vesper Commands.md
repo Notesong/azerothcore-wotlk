@@ -757,11 +757,11 @@ Settings are in `server/configs/modules/presence_bridge.conf` under
 to disable it. Once this binary is installed, `.reload config` updates the cached
 settings without a server restart.
 
-## Prepared combat card — awaiting deployment
+## Combat attention card — installed; real-fight playtest pending
 
-The next body-context update links current combat facts to exact target GUIDs
-and matching `cast` attempts. It is prepared source work, not an installed or
-playtested improvement. Vesper still chooses his action; it adds no fixed
+Installed November 1 after the approved native build and clean server restart.
+The body context links current combat facts to exact target GUIDs and matching
+`cast` attempts. Vesper still chooses his action; it adds no fixed
 rotation or automatic assist rule.
 
 The native additions describe learned spell roles, partial target applicability,
@@ -772,14 +772,18 @@ validation remains authoritative. The compact card covers supported unit-targete
 spells and self-heals. Self-area and other target modes remain in the full spell
 catalog and action space but are outside this compact first version.
 
-The prepared package passes 2,404 offline game-player checks. A synthetic fixture
+The installed package passes 2,404 offline game-player checks. A synthetic fixture
 produced a 1,567-byte card; its combat guide was 3,609 characters versus 15,331
 for the generic guide, with all 27 body actions retained. These are representation
 checks; actual model choices and latency await a live playtest.
 
-The native change is not built; deployment awaits explicit build approval and a
-clean server restart. Presence deployment and real combat playtests also remain.
-Full MCP observations/actions and the hard Moon/taming guards are preserved.
+Live self/ally checks passed for Holy Light (635/639); Judgement (20271) rejected
+those targets with result 12. All three nearby rows reported native melee-range
+booleans. No hostile unit was present, so hostile compatibility was not tested live.
+The actual Qwen body request retained all 29 known spells and the new melee facts;
+the combat card was absent during the healthy, quiet observation, as intended.
+Triggering the card in a real fight, model behavior and latency remain playtests.
+Settings, full MCP access/actions and the hard Moon/taming guards are preserved.
 
 ## Models and attention
 

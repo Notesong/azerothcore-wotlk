@@ -217,12 +217,17 @@ is not proof that an item exists on this corpse.
   cooldown and protection facts; unknown checks remain unknown. Include recipient health and urgent self-care:
   the November 1 bonfire incident included Holy Light aimed at a hostile, then full-health Aurenne while
   Vesper was critically hurt.
-  **Prepared; awaiting deployment:** additive native spell facts and a body combat card link current targets to
-  matching cast attempts, with partial target checks, normal melee range, cooldown/GCD and base costs.
+- [x] Install additive native spell facts and a bounded body combat card linking current targets to matching
+  cast attempts, with partial target checks, normal melee range, cooldown/GCD and base costs.
   Effective cost, exact spell range and full castability stay unknown; ordinary execution validation is final.
   Self-area/other target modes retain their full catalog/actions but are outside this compact first version.
-  Full MCP access and hard Moon/taming guards remain. Native build approval, deployment and real-fight
-  playtests are pending; 2,404 offline checks passed, with the full 27 body actions retained.
+  Full MCP access and hard Moon/taming guards remain. Native build, clean restart and Presence deployment
+  completed; 2,404 offline checks passed, with the full 27 body actions retained.
+  Live Holy Light (635/639) checks accepted self/ally; Judgement (20271) rejected them. Native melee facts
+  and all 29 known spells reached the actual Qwen body request. No hostile was present; the card correctly
+  remained absent during healthy, quiet observation.
+- [ ] Trigger the combat card in a real fight; verify hostile target applicability, useful model choices and
+  response latency. Successful self/ally checks and offline fixtures do not verify live combat behavior.
 
 ## 11. Buff maintenance and situational utility — support facts installed; self/party application observed
 
