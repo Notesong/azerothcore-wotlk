@@ -13,6 +13,7 @@ repository at `modules/mod-presence-bridge/`.
 | `local-server/scripts/` | `C:/Games/AzerothCore/scripts/` |
 | `local-server/addons/Mangosbot/` | Source package; runtime `Mangosbot.lua` and `.toc` go in the WoW client's `Interface/AddOns/Mangosbot/` |
 | `local-server/addons/VesperLoot/` | Separate read-only hints; its three package files go in `Interface/AddOns/VesperLoot/`. |
+| `local-server/addons/VesperVoice/` | Prepared attribution addon; runtime `.lua` and `.toc` files go in `Interface/AddOns/VesperVoice/` after the matching bridge is deployed. |
 | `local-server/*.cmd`, user notes, installation metadata | `C:/Games/AzerothCore/` |
 | `local-server/config-examples/` | Manual examples; never copied directly over live settings |
 
@@ -54,6 +55,12 @@ The body uses local Qwen3.5-4B (`qwen3.5-4b-action`); Social uses GPT-6 Luna
 (`gpt-6-luna`). Both use reasoning `none`, with Qwen thinking disabled. This is
 the November 1 cost choice, verified in actual requests from both lanes.
 Dated decisions and test results describe the models selected at those times.
+
+The November 1 voice update is **prepared, not installed**. It lets the body model
+optionally report a verified operation or current blocker during an existing
+decision, and adds a passive addon chip identifying the runtime's declared speech
+source. It introduces no extra model calls. See [Vesper Voice.md](Vesper%20Voice.md)
+for delivery rules, attribution limits and the remaining deployment/playtest steps.
 
 The installed Qwen3.5-4B launcher uses loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.

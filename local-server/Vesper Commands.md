@@ -28,6 +28,10 @@ Autonomous speech and emotes belong to the social lane; the body lane chooses
 gameplay actions. Body decisions do not repeat your chat as Vesper's own speech.
 Direct MCP speech and emote controls remain available.
 
+The upcoming body-reporting and source-chip update is **prepared, not installed**.
+It permits occasional evidence-backed gameplay reports without adding model calls;
+conversation and emotes remain with Social. See [Vesper Voice.md](Vesper%20Voice.md).
+
 ## Quest-object pickup
 
 The native body view now lists current corpse/chest loot candidates with their

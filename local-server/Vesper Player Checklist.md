@@ -375,6 +375,10 @@ is not proof that an item exists on this corpse.
 - [x] Normal-action QA verified dance state 10 → native `stop` → state 0 after deployment.
 - [ ] Verify follow after dancing with Aurenne online; she was offline immediately after this restart.
 - [ ] Playtest natural replies, greetings and downtime expression with cooldowns; avoid combat distraction, repeated lines and constant permission questions.
+- [ ] Deploy the prepared optional body reports and VesperVoice addon. Keep normal speech intact;
+  attach the actual runtime lane/provider/requested-model metadata outside the utterance.
+- [ ] Playtest a verified completion report, a current blocker and human-reply priority, with no new model calls
+  or repeated routine narration. Verify gray Qwen/Luna/MCP chips and hover details in the game client.
 
 ## 20. Continuity, intentions and asking for help — partial
 
