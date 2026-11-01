@@ -33,10 +33,15 @@ models selected at those times; behavior still needs playtesting.
   token-bearing status proves `owned_by_control_token`. SDK session churn does not own or revoke the lease;
   old generations stay fenced. Remote hand-back is explicit, with no automatic expiry. Local stdio remains
   session-bound with disconnect cleanup; local operator recovery can require the exact observed generation.
+- [x] Install the read-only Presence MCP ownership display, with Start/Resume blocked during takeover,
+  active control, hand-back or invalid/unreadable lease status. Verified released status and the local
+  controller running after installation; 71 backend and 33 frontend targeted checks plus lint passed.
 - [x] Bounded MCP event waits with per-character cursors, server epoch/history-gap reporting and a fresh snapshot on wake. No API model calls are needed for MCP inspection or waiting.
 - [ ] Playtest a complete MCP visit with Vesper: observe → take over → choose actions → wait on meaningful
   changes → inspect results → explicit `hand_back`. Verify ownership is released and the autonomous controller
   resumes if it was running before takeover. A conversation turn ending cannot itself signal hand-back.
+  November 1 local operator recovery released stranded generation 38 after a completed visit; this does not
+  verify the normal full-visit hand-back path.
 - [x] Installed catch-up XP: Vesper receives 2× his normal award while below Aurenne's level, reverting to normal at equal/higher level. This is a local progression mechanic, not model quest competence.
 - [ ] Continue playtesting attention, stale-note invalidation, persistent goals and response latency across real encounters; fix misleading facts or missing controls before prescribing choices.
 - [ ] Expose bounded recent nonmovement failures with action/target/quest-phase identity, result code, age

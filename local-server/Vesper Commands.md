@@ -604,6 +604,17 @@ not revoke its lease; it has no automatic expiry. Optional local stdio diagnosti
 sessions retain strict session-bound ownership and disconnect cleanup.
 `resume_previous:false` leaves prior controllers stopped.
 
+Presence now displays **Preparing MCP control**, **MCP-controlled** or
+**Handing back MCP control** instead of a misleading stopped state. Start and
+Resume are disabled while the interlock blocks autonomy; invalid or unreadable
+lease status stays blocked. This display reads status and never releases control.
+After `hand_back`, verify ownership is released and the previously running
+autonomous controller has resumed. Ending the chat does not perform this step.
+
+On November 1, local operator recovery released a completed visit's stranded
+generation 38 and restored the local controller. A complete normal MCP visit
+through explicit hand-back remains on the playtest checklist.
+
 If a crash strands ownership, inspect status, then run this locally in PowerShell
 to release only the generation you just checked, keeping the model runners
 stopped. Replace `<observed generation>` with its integer value:
