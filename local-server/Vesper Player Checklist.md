@@ -25,6 +25,8 @@ For commands and operation, see [Vesper Commands.md](Vesper%20Commands.md). For 
 
 - [x] Query an observed offer, accept an eligible quest, recognize explicit quest status/readiness, and open the correct observed NPC's normal turn-in dialog.
 - [x] Advance request-items → offer-reward, compare advertised rewards and choose the exact reward index. A dialog-opening receipt is distinct from receiving a reward.
+- [x] Ground local ready-quest candidates in currently observed questgivers, normal approach and the exact current menu/dialog step. A frozen Qwen 4B test selected the correct quest-complete action instead of reopening the NPC; reward options remain model choices.
+- [x] Verified a live autonomous hand-in of Thirst Unending at Arcanist Helion: `quest_complete` opened the reward dialog, then `quest_reward` selected the Green Chain Gauntlets; the server confirmed the reward receipt and removal from the quest log.
 - [x] Eligible party-shared quests have local acceptance handling, including while the model loop is paused. The party leader can use the fixed quest-abandon command.
 - [ ] Demonstrate a full chosen quest loop: accept → pursue → recognize ready → reach the correct NPC → select a sensible reward → verify receipt.
 - [ ] Add intentional outgoing quest sharing and model-chosen abandonment where wanted; clean up obsolete goals and stale notes after sharing, abandonment or reward. Do not automatically accept everything or choose the first reward.

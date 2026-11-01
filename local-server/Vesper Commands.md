@@ -136,11 +136,12 @@ model-context inspection. Capture or storage failures are reported explicitly.
 | `/p Hello, Vesper!` | Sends party chat he can receive. |
 | `/p Vesper, follow beside me.` | Asks his planner to follow you; his saved spacing is one yard beside you. |
 | `/p Vesper, wait here a moment.` | Asks his planner to stay put. |
+| `/p Vesper, turn in Thirst Unending with Arcanist Helion.` | Asks him to approach the observed questgiver and advance the quest's normal dialog and reward steps. |
 | `/p Vesper, check the trainer and see what you can afford.` | Asks him to inspect a nearby trainer's offers and choose training. |
 | `/p Vesper, compare that new sword with your current weapon.` | Asks him to inspect carried gear and decide what to equip. |
 | `/p Vesper, sell the junk you don't need and repair your gear.` | Asks him to inspect a nearby vendor and choose sales or repairs. |
 
-The follow/wait sentences are examples of ordinary requests, not additional
+These sentences are examples of ordinary requests, not additional
 fixed commands. Party invitation decisions and ordinary requests need his model
 controller running and unpaused. Use
 **Pause** in Presence when you need to suspend model decisions reliably. Local
@@ -175,7 +176,7 @@ controller unpaused.
 
 Installed October 31, 2026. Vesper receives current NPC quest dialogs, advertised reward choices and item
 comparisons, the normal item-check-to-reward transition, explicit quest status
-names and nearby questgiver relations. Luna chooses whether to accept, turn in
+names and nearby questgiver relations. The body planner chooses whether to accept, turn in
 or select a reward. A dialog opening is distinct from receiving a reward.
 
 Its internal planner actions are `quest_query`, `quest_accept`, `quest_complete`,
@@ -184,6 +185,15 @@ reward selection requires the exact advertised zero-based index. These are not
 WoW slash commands. Normal quest handlers still check eligibility, objectives,
 required items, money and inventory capacity. Querying a quest can trigger the
 game's ordinary auto-accept behavior, so it is not a read-only MCP operation.
+
+Turning in takes several decisions: `interact` opens the NPC's menu;
+`quest_complete` selects the held quest and opens its turn-in dialog;
+`quest_request_reward` advances a ready item-check dialog when needed;
+`quest_reward` claims the selected offered reward. Opening the NPC repeatedly
+does not finish the quest. The local body view now links each ready held quest
+to a currently observed questgiver and its exact next menu/dialog action, with
+the advertised reward indices kept as choices for the planner. Current positions
+support ordinary local approach; this does not locate distant unseen NPCs.
 
 His view also exposes backpack and bag capacity, separating general-purpose free
 space from specialty bags. The existing `equip_item` action can equip a carried
