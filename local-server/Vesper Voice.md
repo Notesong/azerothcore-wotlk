@@ -5,8 +5,12 @@ Presence controller and VesperVoice addon were applied as a 17-file update.
 The world restarted cleanly; game and administration services are ready. Saved
 model settings and controller preferences were preserved. Full resumed with
 Vesper online and alive, and MCP control was released. The separate Social-only
-controller remains stopped; Full runs both model lanes. Client chips and natural
-body reports still need a playtest.
+controller remains stopped; Full runs both model lanes.
+
+The user confirmed a genuine Social reply and its **[Luna]** chip after the bundled
+Presence client repair. Controller delivery counters showed one Social speech
+sent and zero blocked. Qwen and MCP chips, hover details, natural body completion
+and blocker reports, and human-reply priority still need playtests.
 
 Vesper keeps his ordinary speech. A small gray chip beside his player link shows
 the declared source: **Qwen**, **Luna** or **MCP**. Hovering shows the lane,
@@ -48,7 +52,20 @@ by sender, channel and exact text fingerprint. The normal player link and messag
 remain usable. Metadata expires after five seconds and cannot label a later line.
 See the [addon README](addons/VesperVoice/README.md) for the wire format and checks.
 
+Keep Presence's bundled `tools.presence_acore.Client` in step with the canonical
+harness client. Updating only the external harness left the Full runner using an
+older `execute` signature, which rejected `speech_provenance` before speech reached
+the server. The bundled-client correction is installed; its offline checks cover
+default client selection and speech metadata serialization.
+
+Addon 0.1.1 is installed; a client `/reload` is pending for its missing LFG notice
+template fallback. The exact client channel-notice branch reproduced
+`format(nil)` when both `CHAT_NOT_IN_LFG_NOTICE` variants were absent. The current
+error's notice token was not recorded, so this verifies that known failure path
+without establishing it as the cause of every channel-notice error. Existing
+localized templates and the normal notice renderer are preserved.
+
 After installation, fully exit and reopen WoW to discover the new addon folder.
 Later Lua changes can use `/reload`. The matching native update needs a clean
-server restart. Offline tests and source review do not establish that the client
-chip has been seen in play; that remains a separate check after deployment.
+server restart. Offline checks and the observed Luna chip do not verify the other
+source chips or natural body reporting behavior.

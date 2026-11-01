@@ -61,8 +61,14 @@ optionally report a verified operation or current blocker during an existing
 decision, and adds a passive addon chip identifying the runtime's declared speech
 source. It introduces no extra model calls. See [Vesper Voice.md](Vesper%20Voice.md)
 for delivery rules and attribution limits. The clean restart, preserved settings
-and resumed Full controller were verified. Client chips and natural body reports
-still need a playtest.
+and resumed Full controller were verified. The user confirmed a genuine Social
+reply and its **[Luna]** chip after repairing Presence's bundled client, whose old
+`execute` signature rejected speech metadata. Keep that bundled client aligned
+with the canonical harness; updating the external harness alone is insufficient.
+Qwen/MCP chips, hover details and natural body reports remain unverified.
+Addon 0.1.1's missing LFG notice template fallback is installed, with `/reload`
+pending. Its known client failure path was reproduced offline; the current
+error's notice token was not recorded.
 
 The installed Qwen3.5-4B launcher uses loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.

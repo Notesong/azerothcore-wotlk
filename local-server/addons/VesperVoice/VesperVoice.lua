@@ -1,4 +1,11 @@
 -- WoW 3.3.5. Normal utterance, author link, filters and AddMessage arguments remain intact.
+-- The 3.3.5 client can receive NOT_IN_LFG without shipping either localized
+-- notice template. Supply only that missing template; keep the normal renderer.
+if CHAT_NOT_IN_LFG_NOTICE == nil and CHAT_NOT_IN_LFG_NOTICE_BN == nil then
+  CHAT_NOT_IN_LFG_NOTICE =
+    "|Hchannel:CHANNEL:%d|h[%s]|h You must be queued in Looking for Group before joining this channel."
+end
+
 local C = VesperVoiceCore
 local A = { contexts = {}, hooks = {}, tips = {}, tipOrder = {}, inWorld = false }
 VesperVoice = A

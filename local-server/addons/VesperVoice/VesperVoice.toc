@@ -2,7 +2,7 @@
 ## Title: Vesper Voice
 ## Notes: Read-only attribution chips for server-confirmed Vesper speech.
 ## Author: Notesong
-## Version: 0.1.0
+## Version: 0.1.1
 ## DefaultState: Enabled
 VesperVoiceCore.lua
 VesperVoice.lua

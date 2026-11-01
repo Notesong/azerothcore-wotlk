@@ -171,7 +171,7 @@ test("a lower server sequence is accepted only after explicit world lifecycle re
   eq(match(s, "Before reconnect", 10), nil)
 end)
 
-local function UI()
+local function UI(normalHandler)
   now = 0
   local function frame()
     local f = { scripts = {}, messages = {} }
@@ -192,7 +192,7 @@ local function UI()
   ChatFrame1:SetScript("OnHyperlinkEnter", function() delegated.enter = delegated.enter + 1 end)
   ChatFrame1:SetScript("OnHyperlinkLeave", function() delegated.leave = delegated.leave + 1 end)
   local raw, filtered = {}, false
-  ChatFrame_MessageEventHandler = function(f, event, ...)
+  ChatFrame_MessageEventHandler = normalHandler or function(f, event, ...)
     local a = { n = select("#", ...), ... }
     raw[#raw + 1] = { event = event, args = a }
     if filtered then return true end
@@ -334,6 +334,43 @@ test("leaving world clears context and entering world safely permits a restarted
   receive(a.state, wire(1, "After reconnect", "body", "openai", "gpt-6-luna", 2, GUID, "abcdef0123456789"))
   say(ChatFrame1, "After reconnect", 1)
   assert(ChatFrame1.messages[3][1]:find("[Luna]", 1, true))
+end)
+
+test("missing LFG notice template is supplied without changing normal event arguments", function()
+  local old, oldBN = CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN
+  CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN = nil, nil
+  local seen
+  local function normal(frame, event, ...)
+    local a = { n = select("#", ...), ... }
+    seen = { event = event, args = a }
+    -- Same template lookup and argument order as 3.3.5 ChatFrame.lua:2792-2802.
+    local template = _G["CHAT_" .. a[1] .. "_NOTICE_BN"] or _G["CHAT_" .. a[1] .. "_NOTICE"]
+    frame:AddMessage(string.format(template, a[8], a[4]), .2, .3, .4, 8, false, 55, 66)
+    return true, "normal-notice"
+  end
+  local a = UI(normal)
+  local one, two = ChatFrame_MessageEventHandler(ChatFrame1, "CHAT_MSG_CHANNEL_NOTICE",
+    "NOT_IN_LFG", "", "", "5. LookingForGroup", "", "", 0, 5, "LookingForGroup", 0, 99, "")
+  eq(one, true); eq(two, "normal-notice")
+  eq(seen.event, "CHAT_MSG_CHANNEL_NOTICE"); eq(seen.args.n, 12)
+  eq(seen.args[1], "NOT_IN_LFG"); eq(seen.args[4], "5. LookingForGroup")
+  eq(seen.args[8], 5); eq(seen.args[11], 99); eq(seen.args[12], "")
+  eq(ChatFrame1.messages[1][1], "|Hchannel:CHANNEL:5|h[5. LookingForGroup]|h " ..
+    "You must be queued in Looking for Group before joining this channel.")
+  eq(ChatFrame1.messages[1][7], 55); eq(ChatFrame1.messages[1][8], 66)
+  eq(a.contexts[ChatFrame1], nil)
+  CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN = old, oldBN
+end)
+
+test("existing localized LFG notice templates are never replaced", function()
+  local old, oldBN = CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN
+  CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN = "localized fallback", nil
+  UI()
+  eq(CHAT_NOT_IN_LFG_NOTICE, "localized fallback"); eq(CHAT_NOT_IN_LFG_NOTICE_BN, nil)
+  CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN = nil, "localized BN"
+  UI()
+  eq(CHAT_NOT_IN_LFG_NOTICE, nil); eq(CHAT_NOT_IN_LFG_NOTICE_BN, "localized BN")
+  CHAT_NOT_IN_LFG_NOTICE, CHAT_NOT_IN_LFG_NOTICE_BN = old, oldBN
 end)
 
 print("VesperVoice Lua 5.1: " .. total .. " checks passed")

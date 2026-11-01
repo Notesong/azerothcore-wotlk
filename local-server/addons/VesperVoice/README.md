@@ -4,6 +4,19 @@ WoW 3.3.5 addon source. It places a muted `[Qwen]`, `[Luna]`, or `[MCP]` chip be
 
 The addon is passive. It sends no chat, addon requests, commands, gameplay actions, or model calls. Normal message text, sender link, line ID, colors, access IDs, filters, and the sender's existing context menu are preserved. Standardized emotes and unsupported channels remain unlabeled.
 
+Version 0.1.1 also supplies the missing `CHAT_NOT_IN_LFG_NOTICE` text when neither of the client's two localized
+variants exists. Some 3.3.5 clients otherwise crash in their normal channel-notice renderer when a server requires
+joining the LFG queue before entering LookingForGroup chat. Existing localized templates are retained. The notice
+still passes through the usual renderer, filters and other addons; it is never a Vesper speech line and receives
+no provenance chip.
+
+November 1 deployment check: the user confirmed a genuine Social reply with a `[Luna]` chip. Qwen/MCP chips,
+hover details and natural body reports remain unverified. Presence's bundled `tools.presence_acore.Client` needed
+the same speech-metadata signature as the canonical harness client; updating only the external harness did not
+update the Full runner's selected client. That repair is installed. Addon 0.1.1 is installed with `/reload` pending.
+The missing LFG template path was reproduced against the actual client code; the current error's notice token
+was not recorded.
+
 Install by copying the `VesperVoice` folder into `Interface/AddOns`, then fully exit and reopen WoW so the new addon
 is discovered. Later Lua source updates can use `/reload`. The matching server metadata update must be present first.
 No metadata means normal unlabeled chat.
@@ -44,7 +57,10 @@ The implementation was checked against the 3.3.5 client [ChatFrame.lua](https://
 
 ## Offline checks
 
-`../tests/test_vesper_voice.lua` runs under Lua 5.1 and checks attribution, UTF-8 checksums, sender/GUID/channel binding, TTL, replay, ambiguity, duplicate conflicts, bounded caches, intact rendering parameters, normal filters, multiple chat frames, and hyperlink behavior.
+`../tests/test_vesper_voice.lua` runs under Lua 5.1 and checks attribution, UTF-8 checksums, sender/GUID/channel
+binding, TTL, replay, ambiguity, duplicate conflicts, bounded caches, intact rendering parameters, normal filters,
+multiple chat frames, hyperlink behavior, missing LFG notice handling, and preservation of existing localized
+notice text.
 
 Use a Python environment containing `lupa.lua51`, or pass the directory containing an isolated `lupa` package through `--runtime-path` or `VESPERVOICE_LUA51_PATH`. This dependency is not part of the addon. From this addon folder, run:
 

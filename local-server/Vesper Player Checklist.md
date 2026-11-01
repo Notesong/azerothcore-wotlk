@@ -381,8 +381,15 @@ is not proof that an item exists on this corpse.
 - [x] Verify the clean world restart and game/administration readiness, preserve saved settings, resume Full,
   and release MCP control. Vesper was online and alive with Full running unpaused and no reported error.
   The separate Social-only controller stays stopped because Full supplies both model lanes.
+- [x] Repair Presence's bundled `tools.presence_acore.Client` parity with the canonical harness:
+  the Full runner's old `execute` signature rejected speech metadata before server dispatch.
+  Default-client and serialization checks passed; the user then confirmed a genuine Social reply and **[Luna]** chip.
+- [x] Install addon 0.1.1's missing LFG notice template fallback. The actual client channel-notice branch
+  reproduced `format(nil)` without that template; existing localized strings remain intact.
+- [ ] Reload the client and check the LFG notice fallback. The current error's notice token was not recorded;
+  reproducing this known missing-template path does not identify every possible channel-notice error.
 - [ ] Playtest a verified completion report, a current blocker and human-reply priority, with no new model calls
-  or repeated routine narration. Verify gray Qwen/Luna/MCP chips and hover details in the game client.
+  or repeated routine narration. Verify Qwen and MCP chips and hover details; only the Luna chip is confirmed in play.
 
 ## 20. Continuity, intentions and asking for help — partial
 
