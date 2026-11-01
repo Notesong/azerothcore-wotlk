@@ -1,0 +1,26 @@
+--- a/director_quest.lua
++++ b/director_quest.lua
+@@ -869,6 +869,23 @@
+ QH_Event("UNIT_QUEST_LOG_CHANGED", UpdateTrigger)
+ QH_Event("QUEST_LOG_UPDATE", QH_UpdateQuests)
+ 
++-- Purchases and other bag changes can update objective counts without a quest
++-- log event. Let the inventory settle, then use the normal quest-log scan.
++local inventory_update_pending = false
++local function InventoryUpdateTrigger()
++  if inventory_update_pending then return end
++  inventory_update_pending = true
++  QH_AddNotifier(GetTime() + 0.1, function()
++    inventory_update_pending = false
++    QH_UpdateQuests(true)
++  end)
++end
++
++QH_Event("BAG_UPDATE", InventoryUpdateTrigger)
++QH_Event("UNIT_INVENTORY_CHANGED", function(unit)
++  if unit == "player" then InventoryUpdateTrigger() end
++end)
++
+ -- We don't return anything here, but I don't think that's actually an issue - those functions don't return anything anyway. Someday I'll regret writing this. Delay because of beql which is a bitch.
+ QH_AddNotifier(GetTime() + 5, function ()
+   local aqw_orig = AddQuestWatch

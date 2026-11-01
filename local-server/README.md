@@ -70,6 +70,14 @@ Addon 0.1.1's missing LFG notice template fallback is installed, with `/reload`
 pending. Its known client failure path was reproduced offline; the current
 error's notice token was not recorded.
 
+The [QuestHelper inventory refresh patch](addons/QuestHelperFixes/README.md) is
+installed. It refreshes the existing quest-log view after inventory events,
+without inferring counts from item names. The user confirmed that the normal
+quest log showed a purchased bottle at 1/1 while QuestHelper only caught up after
+relogging; that relog's timing relative to the patch is unconfirmed. A new purchase
+updating the tracker without relogging remains unverified. The source backup holds
+only the patch, instructions and offline checks, not QuestHelper's addon database.
+
 The installed Qwen3.5-4B launcher uses loopback
 port 8082, with thinking disabled and strict process ownership for shutdown.
 `Start Qwen Body.cmd` starts that model server independently of ChatGPT; starting
