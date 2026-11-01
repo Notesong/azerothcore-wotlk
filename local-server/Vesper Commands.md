@@ -780,7 +780,7 @@ checks; actual model choices and latency await a live playtest.
 Live self/ally checks passed for Holy Light (635/639); Judgement (20271) rejected
 those targets with result 12. All three nearby rows reported native melee-range
 booleans. No hostile unit was present, so hostile compatibility was not tested live.
-The actual Qwen body request retained all 29 known spells and the new melee facts;
+The actual Qwen body request retained all 29 exposed active spells and the new melee facts;
 the combat card was absent during the healthy, quiet observation, as intended.
 Triggering the card in a real fight, model behavior and latency remain playtests.
 Settings, full MCP access/actions and the hard Moon/taming guards are preserved.

@@ -224,7 +224,7 @@ is not proof that an item exists on this corpse.
   Full MCP access and hard Moon/taming guards remain. Native build, clean restart and Presence deployment
   completed; 2,404 offline checks passed, with the full 27 body actions retained.
   Live Holy Light (635/639) checks accepted self/ally; Judgement (20271) rejected them. Native melee facts
-  and all 29 known spells reached the actual Qwen body request. No hostile was present; the card correctly
+  and all 29 exposed active spells reached the actual Qwen body request. No hostile was present; the card correctly
   remained absent during healthy, quiet observation.
 - [ ] Trigger the combat card in a real fight; verify hostile target applicability, useful model choices and
   response latency. Successful self/ally checks and offline fixtures do not verify live combat behavior.
