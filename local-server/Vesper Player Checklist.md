@@ -135,7 +135,13 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
 
 - [x] Loot eligible creature corpses and ordinary chest objects under normal ownership, lock, quest, range and bag rules. Pending openings retain their original request identity; failed/unfinished pickups do not become collected-item working notes.
 - [x] Local body view binds currently observed lootable corpses/chests to exact `loot(target_guid)` candidates, preserves full corpse facts and skips the pending target; contents remain unpredicted until actual receipts.
-- [ ] Correct candidate ordering and playtest named-corpse pickup. At 15:38:59 UTC, dead, lootable Thaelis
+- [x] Correct candidate ordering: ready corpse pickups precede distant crates, with a bounded mix of source
+  kinds that does not displace ready pickups. The installed controller update passed 2,182 offline checks.
+- [x] Demonstrate autonomous named-corpse pickup after the candidate correction. At 16:07:36 UTC, Qwen chose
+  loot on a new Thaelis corpse; the original completed receipt stored one Head (21781), with no skipped
+  slots or partial result. Fresh state showed Vesper alive, inventory count 1 and quest 8468 at 1/1;
+  the user confirmed the pickup. This preceded the approach freshness correction; sustained reliability remains open.
+  Earlier, at 15:38:59 UTC, dead, lootable Thaelis
   was 0.24 yards away but omitted behind four crates 5–48 yards away. No retained loot attempt targeted
   that corpse; Head progress remained 0/1, and the corpse's actual contents were not established.
 - [ ] Add a bounded new-loot availability wake event for untracked deaths, preserving combat, movement and pending-opening priorities. Current untracked loot can wait for the normal review deadline.
@@ -204,7 +210,21 @@ Also: we should absolutely teach me to equip the damned bag before I become the 
   copied Bonfire coordinates while claiming to travel to Falconwing Square for a quest whose required item was 0/1.
 - [ ] Correct the later fabricated Bonfire repair mechanic and blocked-follow loop. At 15:40:19 UTC, Qwen
   chose the exact fire center to "rest and recover gear durability" despite full health. A subsequent live
-  check found him alive there with 135 health. The object advertised no repair service; the correction is being tested.
+  check found him alive there with 135 health. The object advertised no repair service;
+  sustained behavior still needs testing.
+- [x] Install conditional local guidance for visible fires/spell-focus objects: names, selectable flags and
+  object coordinates establish no rest/repair service or useful waypoint. Durability repair requires an
+  observed repair NPC and normal `vendor_repair`; no movement ban or blanket type-8 hazard claim is added.
+- [x] Generate approach choices two yards to the actor's side of loot, quest, service and blocked-lead targets,
+  retaining observed height and separate source coordinates. These are unverified pathfinding choices;
+  fresh range/LOS checks remain authoritative, with no safe-zone or reachability promise.
+- [x] Report explicit lead LOS blockage without advertising an unchanged follow link, and offer a bounded
+  normal approach choice when grounded in fresh same-map positions.
+- [x] Pass fresh observations into approach generation. The installed two-file follow-up passed 2,190 offline
+  checks; the actual Qwen 4B request at 16:12:26 UTC showed two noncenter loot approach choices, each two
+  horizontal yards to the actor's side with source height preserved. This verifies model-visible representation.
+- [ ] Verify executed approach movement, route safety and sustained recovery. The earlier successful Head
+  pickup does not establish that generated approach points were used.
 - [ ] Expose environmental hazard effects and scripted-behavior uncertainty. Bonfire 183444 uses `go_heat`, which
   is absent from current object facts; sampled health loss does not identify fire versus individual attackers.
 
@@ -307,9 +327,24 @@ lootable Thaelis corpse: the four displayed pickup choices were farther crates.
 This establishes a candidate omission, not a failed Head-loot receipt or proof
 of the corpse's contents. The later Bonfire visit was another observed failure:
 Qwen invented resting there to restore durability and moved to its exact center.
-Candidate grounding, named-corpse pickup, safe navigation and blocked-follow
-recovery are being tested. Sustained reliability, autonomous resurrection and
-the full corpse/rejoin loop remain open.
+The seven-file correction is now installed and passed 2,182 offline checks:
+ready corpses precede distant crates, bounded kind mixing preserves ready
+pickups, and conditional fire guidance rejects inferred rest/repair services.
+Generated approach choices use two-yard actor-side horizontal offsets with
+observed height and separate source coordinates. Explicitly blocked follow
+reports its LOS problem and can offer an approach choice. Normal pathfinding
+and fresh interaction checks remain authoritative; these points are not proven
+safe zones. At 16:07:36 UTC, Qwen chose loot on a new Thaelis corpse; its original
+completed receipt stored one Head (21781), with no skipped slots or partial
+result. Fresh state confirmed inventory count 1 and quest 8468 at 1/1 while
+Vesper was alive, also confirmed by the user. This success preceded the approach
+freshness correction. The two-file freshness follow-up is now installed and
+passed 2,190 offline checks. An actual Qwen 4B request at 16:12:26 UTC showed two
+loot approach choices, each two horizontal yards to the actor's side, preserving
+source height and avoiding the source center. This verifies representation in
+the model request, not executed approach movement or safety. Sustained
+pickup/navigation behavior, native hazard metadata, autonomous resurrection
+and the full corpse/rejoin loop remain open.
 
 **MCP ownership and ghost-navigation update — November 1:** the generation 23
 orphaned lease was released locally and the prior Full controller was restored.

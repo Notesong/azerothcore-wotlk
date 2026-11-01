@@ -71,15 +71,44 @@ Thaelis the Hungerer was dead, lootable and about 0.24 yards away, but the four
 pickup choices shown to the body model were crates 5–48 yards away. Chest-first
 ordering had omitted the nearby corpse. The retained ledger contained no loot
 attempt on that Thaelis corpse. Its actual contents were never established.
-Candidate selection and named-corpse pickup are being tested.
+The installed candidate correction now keeps ready corpse pickups ahead of
+distant crates and mixes source kinds within the bounded list without
+displacing ready pickups. At 16:07:36 UTC after that deployment, Qwen chose
+`loot` on a new Thaelis corpse. Its original completed receipt stored one Head
+of Thaelis (21781), with no skipped slots and `partial: false`. Fresh state
+confirmed inventory count 1 and quest 8468 at 1/1 while Vesper was alive; the
+user also confirmed the pickup. This demonstrates autonomous named-corpse
+pickup, not the contents of the earlier unlooted corpse or sustained reliability.
+It occurred before the follow-up approach freshness correction described below.
 
 Navigation also remains a known problem. At 15:40:19 UTC, Qwen chose the exact
 Bonfire center to "rest and recover gear durability" despite full health. A
 later live check found him alive at that center with 135 health. Resting at a
 fire does not repair gear; durability repair requires an actual repair service
 and its normal receipt. The observation supplied no rest or repair service for
-that object. Grounding this choice and recovering from blocked follow attempts
-are still being tested; no completed correction is claimed here.
+that object. The installed local guide now explains this when visible fires or
+spell-focus objects are present: a name, selectable flag or object-center
+coordinate establishes no repair service or useful waypoint. It does not ban
+movement or label every spell-focus object hazardous.
+
+Generated approach choices for loot, questgivers, services and a blocked lead
+now use points two yards to the actor's side of the observed target in the horizontal
+plane. They retain the observed target height and keep the source's actual
+coordinates separate. These are choices for normal pathfinding, not proven
+safe or reachable locations; fresh range and line-of-sight checks still decide
+whether the intended interaction can proceed. An explicitly blocked follow
+reports the line-of-sight problem and can offer this approach choice instead
+of advertising another unchanged follow attempt.
+
+The seven-file controller update is installed and passed 2,182 offline checks.
+Head inventory and objective completion are now verified. The two-file follow-up
+passing fresh observations into approach generation is also installed, with
+2,190 offline checks passed. The actual Qwen 4B request at 16:12:26 UTC contained
+two loot approach choices, each two horizontal yards to the actor's side of its
+source with the observed source height preserved and no target-center destination.
+This verifies model-visible choices, not executed movement or route safety.
+Continued Bonfire avoidance and reliable follow recovery remain playtests.
+Native hazard-script metadata and safe interaction zones are still unavailable.
 
 ## Custom in-game commands
 
