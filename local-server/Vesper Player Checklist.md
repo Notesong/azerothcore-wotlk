@@ -390,6 +390,16 @@ is not proof that an item exists on this corpse.
   reproducing this known missing-template path does not identify every possible channel-notice error.
 - [ ] Playtest a verified completion report, a current blocker and human-reply priority, with no new model calls
   or repeated routine narration. Verify Qwen and MCP chips and hover details; only the Luna chip is confirmed in play.
+- [x] Install learned-ability names and whole-link handling from verified completed training receipts. Match exact
+  learned IDs to observed catalog/direct trainer names; keep unknown names unknown and never substitute wrapper labels.
+  Earlier native receipts verified Hammer of Justice (853), Purify (1152) and Parry (3127).
+- [x] Share character-bound recent learning facts between Body and Social: at most four receipts/eight abilities
+  for 30 minutes in memory, covering receipts observed by the running controller without historical backfill.
+  Reports remain optional model choices in existing calls; quiet-state checks, cooldowns and human replies take priority.
+  The three-file update preserved settings and resumed Full without a world restart. MCP control was released.
+- [x] Pass the final 2,498 offline checks and 26 independent feature checks for the learned-ability update.
+- [ ] Playtest a new training report, its complete clickable link and Social's use of the shared learning history.
+  Earlier training receipts do not prove these new behaviors; this is not a full spellbook or automatic announcement.
 
 ## 20. Continuity, intentions and asking for help — partial
 

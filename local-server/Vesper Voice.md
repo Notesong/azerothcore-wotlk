@@ -44,6 +44,40 @@ use a recent human line verbatim as Vesper's own report. Speech with an uncertai
 transport result is resolved using its original request identity rather than
 resent under a new one.
 
+## Learned abilities
+
+The November 1 follow-up is **installed**. Three Presence files were updated without
+a world restart. Saved settings were preserved, Full resumed unpaused with fresh
+ticks and no reported error, and MCP control was released. The separate Social-only
+controller remains stopped because Full supplies both lanes.
+
+Only completed native training receipts establish that an ability was learned.
+The actual learned IDs are joined to unambiguous observed spell-catalog names or
+a direct trainer row with that same spell ID. A trainer wrapper's name cannot
+stand in for a different learned spell. Unknown names stay unknown; ranks are not
+guessed. Earlier live receipts verified **Hammer of Justice (853)**, **Purify
+(1152)** and **Parry (3127)**; Parry's direct trainer row supplied its name because
+passive abilities are absent from the active spell catalog.
+
+The body can choose a brief, natural report during an existing decision, using
+a supplied name or complete spell link in ordinary party/local speech. This adds
+no model call or automatic announcement. Quiet-state checks, cooldowns and human
+reply priority still apply. Link cleanup preserves whole tokens within the
+180-character and 255-byte chat budgets, using safe plain text when needed.
+For example, a supplied Hammer of Justice link has this form:
+
+`|cff71d5ff|Hspell:853|h[Hammer of Justice]|h|r`
+
+Both model lanes receive a bounded recent-learning view: at most four receipts
+and eight abilities, retained for 30 minutes in memory and bound to the character.
+It covers receipts observed by the running controller, with no historical
+backfill or complete spellbook claim. MCP permissions are unchanged.
+
+The final offline suite passed **2,498 checks**, with **26 independent feature
+checks** also passing. A new in-game training report, its clickable link and
+Social's use of the shared learning history still need a playtest. The earlier
+receipts above do not establish those new behaviors.
+
 ## Addon and deployment
 
 VesperVoice is passive: it sends no chat, gameplay commands or model calls. A

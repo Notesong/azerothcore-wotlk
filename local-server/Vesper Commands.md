@@ -35,6 +35,20 @@ conversation and emotes remain with Social. Settings were preserved and MCP cont
 was released. Client chips and natural reports still need a playtest.
 See [Vesper Voice.md](Vesper%20Voice.md).
 
+Learned-ability reports are also installed, without a world restart. After a
+verified training receipt, Qwen may choose a short ordinary-chat report with an
+observed ability name or complete clickable spell link. There is no fixed chat
+command or automatic announcement; normal quiet-state checks, cooldowns and human
+reply priority remain. Both model lanes can see up to four recent receipts/eight
+abilities for 30 minutes in memory. This begins with receipts observed by the
+running controller and does not backfill earlier training or expose a full
+spellbook. Unknown names stay unknown; MCP permissions are unchanged.
+
+Earlier receipts verified Hammer of Justice (853), Purify (1152) and Parry (3127).
+The new report/link and shared Social history still need an in-game playtest.
+See the learned-abilities section in [Vesper Voice.md](Vesper%20Voice.md) for the
+exact identity rules and limits.
+
 ## Quest-object pickup
 
 The native body view now lists current corpse/chest loot candidates with their

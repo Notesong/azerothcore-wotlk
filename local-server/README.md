@@ -70,6 +70,15 @@ Addon 0.1.1's missing LFG notice template fallback is installed, with `/reload`
 pending. Its known client failure path was reproduced offline; the current
 error's notice token was not recorded.
 
+The November 1 learned-ability follow-up is installed without a world restart.
+Verified training receipts can supply exact observed names and whole spell links
+for optional ordinary-chat body reports. Both lanes share at most four recent
+receipts/eight abilities for 30 minutes in memory, without historical backfill or
+a complete spellbook claim. Unknown names remain unknown; there are no extra
+model calls, automatic announcements or MCP permission changes. Full resumed
+unpaused with saved settings preserved. New training-report/link/Social-history
+behavior still needs an in-game playtest; see [Vesper Voice.md](Vesper%20Voice.md).
+
 The [QuestHelper inventory refresh patch](addons/QuestHelperFixes/README.md) is
 installed. It refreshes the existing quest-log view after inventory events,
 without inferring counts from item names. The user confirmed that the normal
