@@ -370,11 +370,15 @@ def stamp(number):
     def test_current_installed_projection_uses_only_fixed_pure_helpers(self):
         source = Path('C:/Files/Programs/Codex/Presence/working/backend/tools')
         names = ['game_player_native_' + suffix + '.py'
-            for suffix in ('context', 'gear', 'attention', 'focus', 'buffs', 'quest_items')]
+            for suffix in ('context', 'gear', 'attention', 'focus', 'buffs', 'quest_items',
+                'combat', 'pickup_surroundings')]
         if not all((source / name).is_file() for name in names):
             self.skipTest('Current Presence pure projections are not installed')
         for name in names:
             (self.tools / name).write_bytes((source / name).read_bytes())
+        item_helper = source / 'game_player_native_item_use.py'
+        if item_helper.is_file():
+            (self.tools / item_helper.name).write_bytes(item_helper.read_bytes())
         original_import, before_path, before_modules = builtins.__import__, list(sys.path), set(sys.modules)
 
         def deny_runtime(name, globals=None, locals=None, fromlist=(), level=0):
@@ -440,6 +444,10 @@ def stamp(number):
             self.skipTest("Presence gear projection source is not installed")
         for target in (self.context, self.helper):
             target.write_bytes((source_directory / target.name).read_bytes())
+        for suffix in ('attention', 'focus', 'buffs', 'quest_items', 'combat', 'pickup_surroundings', 'item_use'):
+            dependency = source_directory / ('game_player_native_' + suffix + '.py')
+            if dependency.is_file():
+                (self.tools / dependency.name).write_bytes(dependency.read_bytes())
         observation = {
             "sequence": 8, "self": {"name": "Vesper", "class": 2, "level": 12},
             "inventory": [{"guid": "100", "name": "Test sword", "class": 2, "inventory_type": 13,

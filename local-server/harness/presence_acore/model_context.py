@@ -224,6 +224,9 @@ def _projection(presence_root: Path) -> Callable[..., dict[str, Any]]:
         "tools.game_player_native_focus": "game_player_native_focus.py",
         "tools.game_player_native_buffs": "game_player_native_buffs.py",
         "tools.game_player_native_quest_items": "game_player_native_quest_items.py",
+        "tools.game_player_native_item_use": "game_player_native_item_use.py",
+        "tools.game_player_native_combat": "game_player_native_combat.py",
+        "tools.game_player_native_pickup_surroundings": "game_player_native_pickup_surroundings.py",
     }
 
     def projection_import(name: str, globals: Any = None, locals: Any = None,

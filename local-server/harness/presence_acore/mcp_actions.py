@@ -30,6 +30,7 @@ _spec('target', {'target_guid': {'type': 'string', 'pattern': '^(0|[1-9][0-9]{0,
 for _name in ('attack', 'interact', 'loot', 'spirit_healer_activate', 'reclaim_corpse'):
     _spec(_name, {'target_guid': _GUID})
 _spec('cast', {'target_guid': _GUID, 'spell_id': _POSITIVE})
+_spec('use_item', {'item_guid': _GUID})
 for _name in ALIASES:
     _required = {'target_guid': _GUID, 'quest_id': _POSITIVE}
     if _name == 'quest_reward':

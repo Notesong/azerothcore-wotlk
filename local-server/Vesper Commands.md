@@ -457,6 +457,27 @@ The November 1 observation showed Ralen 1/1 and Meledor 0/1; normal group credit
 can advance these objectives without Vesper using the rod. `cast` requires a
 learned spell and does not activate carried items.
 
+### Self-restoration consumables
+
+The first carried-item action is `{"type":"use_item","item_guid":"<observed owned GUID>"}`.
+This is a planner/MCP action, not a slash command. Its initial scope is self-restoration potions and
+food/drink with supported simple self-only effects. The server derives the item spell and actual bag/slot;
+do not pass a spell, target, item template ID or quantity. Quest tools, the hearthstone, scripted items,
+ground/item targeting and other item families remain separate work.
+
+An item's `use_state` reports supported effects, cooldown, partial readiness and blocking reasons.
+A ready exact action does not guarantee that the normal game handler will accept the use. Vesper chooses
+whether and when to consume it; this does not introduce automatic healing or drinking. Movement is not
+automatically stopped to use food or water. The compact body view offers at most four current candidates;
+full MCP observations retain the item facts.
+
+Use the original operation ID to inspect the result. Acceptance is pending, a correlated spell emission
+is distinct from observed consumption, and food/drink restoration continues over time. The receipt reports
+count/charge, cooldown, health, mana and aura observations; health or mana changes can include other sources.
+Missing cast diagnostics remain `unknown`, pending and fenced. The body persists its uncertainty fence
+across controller restarts and polls the original request rather than submitting another use. Do not work
+around an uncertain MCP result with a new operation ID. Existing normal game rules and Moon guards remain.
+
 ### Quest-starting carried items
 
 A carried item's `start_quest` facts identify its offered quest and current

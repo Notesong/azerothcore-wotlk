@@ -114,9 +114,22 @@ models selected at those times; behavior still needs playtesting.
 - [ ] Connect objectives to relevant observed mobs, objects and NPCs; discover available quests and choose a useful next objective.
 - [ ] Add grounded route/travel information and completion checks. Distinguish a known destination, a remembered lead and an unknown location; no magic GPS or fabricated coordinates.
 
-## 4. Consumables and restocking — purchasing exists; use incomplete
+## 4. Consumables and restocking — self-use first increment; needs playtest
 
 - [x] Inspect vendor offers and buy available stock with normal money, quantity and bag-space checks.
+- [x] Install and verify `use_item(item_guid)` for owned self-restoration potions and food/drink through
+  the normal item-use handler. Expose supported effects, partial readiness, cooldown and exact current action;
+  distinguish accepted, emitted, consumed and observed effects. Item spells are not learned `cast` abilities.
+- [x] Verify bounded body choices and full MCP item-use access, with original-request receipt lookup and a
+  persistent body-controller fence against repeating an uncertain use after a restart.
+- [x] Pass 2,733 Presence checks, 314 harness checks plus 86 subtests, 87 Gateway source and 87 compiled
+  checks, and 75 native item-use checks. Verify an actual Qwen request contains the owned potion's exact
+  action, and MCP's live preview retains its use facts. These checks do not establish autonomous timing.
+- [x] After the clean restart, live state offered the owned Minor Healing Potion (one) and Refreshing
+  Spring Water (eight) with their exact self-use actions and cooldown facts. Stock drink-script support is
+  restricted to its reviewed self-mana signature. Health/mana were full; neither item was consumed for testing.
+- [ ] Playtest a useful self-chosen potion or food/drink use and verify inventory, cooldown and recovery.
+  Do not consume the sole potion at full health just to demonstrate the action.
 - [ ] Add generic consumable use and meaningful supply counts: food, water, potions, reagents and ammunition where the character's class actually needs them.
 - [ ] Choose when to restock, how much to afford, and when to eat/drink/use a supply; verify the result without blindly repeating an uncertain purchase.
 
