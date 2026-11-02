@@ -39,6 +39,7 @@
 #include "PresenceEventJournal.h"
 #include "Random.h"
 #include "PresenceGuardTelemetry.h"
+#include "PresenceItemUsePolicy.h"
 #include "PresenceQuestCommand.h"
 #include "PresenceProtectionPolicy.h"
 #include "PresencePickupPolicy.h"
@@ -508,6 +509,170 @@ bool CarriedItem(Player const* player, Item const* item)
             && player->GetBagByPos(bag) && slot < player->GetBagByPos(bag)->GetBagSize());
 }
 
+struct RestorationUse
+{
+    SpellInfo const* spell = nullptr;
+    uint8 slot = 0;
+    bool health = false;
+    bool power = false;
+    bool aura = false;
+    std::string unsupported = "unsupported_item_family";
+};
+
+RestorationUse SelfRestorationUse(Item const* item)
+{
+    RestorationUse result;
+    if (!item)
+        return result;
+    ItemTemplate const* info = item->GetTemplate();
+    if (info->Class != ITEM_CLASS_CONSUMABLE
+        || (info->SubClass != ITEM_SUBCLASS_POTION && info->SubClass != ITEM_SUBCLASS_FOOD)
+        || info->InventoryType != INVTYPE_NON_EQUIP)
+        return result;
+    result.unsupported = "scripted_item_not_supported";
+    if (info->ScriptId)
+        return result;
+    result.unsupported = "on_use_enchantment_not_supported";
+    for (uint8 slot = 0; slot < MAX_ENCHANTMENT_SLOT; ++slot)
+        if (auto enchant = sSpellItemEnchantmentStore.LookupEntry(item->GetEnchantmentId(EnchantmentSlot(slot))))
+            for (uint8 effect = 0; effect < MAX_SPELL_ITEM_ENCHANTMENT_EFFECTS; ++effect)
+                if (enchant->type[effect] == ITEM_ENCHANTMENT_TYPE_USE_SPELL)
+                    return result;
+    result.unsupported = "single_on_use_spell_required";
+    uint32 spellId = 0;
+    for (uint8 slot = 0; slot < MAX_ITEM_PROTO_SPELLS; ++slot)
+        if (info->Spells[slot].SpellId)
+        {
+            // Exclude equip, chance-on-hit, learning and secondary spells too.
+            if (spellId || info->Spells[slot].SpellId < 0
+                || info->Spells[slot].SpellTrigger != ITEM_SPELLTRIGGER_ON_USE)
+                return result;
+            spellId = uint32(info->Spells[slot].SpellId);
+            result.slot = slot;
+        }
+    SpellInfo const* spell = sSpellMgr->GetSpellInfo(spellId);
+    result.unsupported = "self_restoration_spell_required";
+    if (!spell || !spell->IsPositive() || spell->IsPassive() || spell->IsChanneled()
+        || spell->GetExplicitTargetMask() || spell->IsTargetingArea() || spell->ProcFlags || spell->Mechanic)
+        return result;
+    auto scripts = sObjectMgr->GetSpellScriptsBounds(spellId);
+    if (scripts.first != scripts.second)
+        return result;
+    for (int32 link : {int32(spellId), -int32(spellId), int32(spellId + SPELL_LINK_HIT),
+        int32(spellId + SPELL_LINK_AURA), -int32(spellId + SPELL_LINK_AURA)})
+        if (sSpellMgr->GetSpellLinked(link))
+            return result;
+    for (auto const& effect : spell->GetEffects())
+    {
+        if (!effect.IsEffect())
+            continue;
+        if (effect.TargetA.GetTarget() != TARGET_UNIT_CASTER || effect.TargetB.GetTarget()
+            || effect.IsTargetingArea() || effect.IsAreaAuraEffect() || effect.TriggerSpell
+            || effect.ChainTarget || effect.Mechanic || effect.BasePoints < 0)
+            return result;
+        if (effect.IsEffect(SPELL_EFFECT_HEAL) || effect.IsEffect(SPELL_EFFECT_HEAL_PCT))
+            result.health = true;
+        else if ((effect.IsEffect(SPELL_EFFECT_ENERGIZE) || effect.IsEffect(SPELL_EFFECT_ENERGIZE_PCT))
+            && effect.MiscValue == POWER_MANA)
+            result.power = true;
+        else if (effect.IsEffect(SPELL_EFFECT_APPLY_AURA))
+        {
+            if (effect.IsAura(SPELL_AURA_MOD_REGEN) || effect.IsAura(SPELL_AURA_PERIODIC_HEAL)
+                || effect.IsAura(SPELL_AURA_OBS_MOD_HEALTH))
+                result.health = true;
+            else if ((effect.IsAura(SPELL_AURA_MOD_POWER_REGEN) || effect.IsAura(SPELL_AURA_PERIODIC_ENERGIZE)
+                || effect.IsAura(SPELL_AURA_OBS_MOD_POWER)) && effect.MiscValue == POWER_MANA)
+                result.power = true;
+            else
+                return result;
+            result.aura = true;
+        }
+        else
+            return result;
+    }
+    if (result.health || result.power)
+    {
+        result.spell = spell;
+        result.unsupported.clear();
+    }
+    return result;
+}
+
+Json::object ItemUseState(Player* player, Item* item)
+{
+    RestorationUse use = SelfRestorationUse(item);
+    Json::array reasons;
+    if (!use.spell)
+        reasons.emplace_back(use.unsupported);
+    else
+    {
+        if (!CarriedItem(player, item))
+            reasons.emplace_back("item_not_carried");
+        if (!item->GetCount())
+            reasons.emplace_back("empty_item_stack");
+        if (!player->IsAlive())
+            reasons.emplace_back("dead");
+        if (player->CanUseItem(item) != EQUIP_ERR_OK)
+            reasons.emplace_back("item_eligibility_failed");
+        if (item->IsInTrade() || player->GetTradeData())
+            reasons.emplace_back("trade_active");
+        if (player->m_mover != player || player->IsBeingTeleported())
+            reasons.emplace_back("character_not_ready");
+        if (player->IsNonMeleeSpellCast(false) || !player->SpellQueue.empty())
+            reasons.emplace_back("spell_in_progress");
+        if (player->GetSpellCooldownDelay(use.spell->Id))
+            reasons.emplace_back("item_cooldown");
+        if (player->GetGlobalCooldownMgr().GetGlobalCooldown(use.spell))
+            reasons.emplace_back("global_cooldown");
+        if (!player->CanExecutePendingSpellCastRequest(use.spell))
+            reasons.emplace_back("spell_not_ready");
+        if (player->IsInCombat() && !use.spell->CanBeUsedInCombat())
+            reasons.emplace_back("not_usable_in_combat");
+        if (player->isMoving() && item->GetTemplate()->SubClass == ITEM_SUBCLASS_FOOD)
+            reasons.emplace_back("must_stop_to_eat_or_drink");
+        if (use.aura && player->HasAura(use.spell->Id))
+            reasons.emplace_back("restoration_aura_already_present");
+        if (item->GetTemplate()->Spells[use.slot].SpellCharges && !item->GetSpellCharges(use.slot))
+            reasons.emplace_back("no_charges");
+    }
+    bool ready = use.spell && reasons.empty();
+    Json::object result{{"supported", use.spell != nullptr}, {"ready", ready},
+        {"reasons", std::move(reasons)}, {"target_mode", "self"}, {"scope", "self_restoration_v1"},
+        {"readiness", "partial_native_checks"}, {"exact_castability", nullptr},
+        {"spell_id", use.spell ? use.spell->Id : 0},
+        {"spell_name", use.spell ? use.spell->SpellName[0] : ""},
+        {"restores_health", use.spell && use.health}, {"restores_power", use.spell && use.power},
+        {"cooldown_ms", use.spell ? player->GetSpellCooldownDelay(use.spell->Id) : 0},
+        {"next_action", nullptr}};
+    if (use.spell)
+    {
+        result["charges"] = item->GetSpellCharges(use.slot);
+        result["gcd_remaining_ms"] = player->GetGlobalCooldownMgr().GetGlobalCooldown(use.spell);
+        result["base_cast_time_ms"] = use.spell->CastTimeEntry ? use.spell->CastTimeEntry->CastTime : 0;
+        result["aura_duration_ms"] = use.spell->GetDuration();
+        result["self_health_missing"] = player->GetMaxHealth() - player->GetHealth();
+        result["self_mana_missing"] = player->GetMaxPower(POWER_MANA) - player->GetPower(POWER_MANA);
+        if (ready)
+            result["next_action"] = Json::object{{"type", "use_item"},
+                {"item_guid", std::to_string(item->GetGUID().GetRawValue())}};
+    }
+    return result;
+}
+
+void FenceItemUseFacts(Json::object& facts, bool pending)
+{
+    if (!pending)
+        return;
+    auto state = facts.if_contains("use_state");
+    if (state && state->is_object() && state->as_object().at("supported").as_bool())
+    {
+        auto& use = state->as_object();
+        use["ready"] = false;
+        use["next_action"] = nullptr;
+        use.at("reasons").as_array().emplace_back("item_use_receipt_pending");
+    }
+}
+
 char const* EquipmentSlotName(uint8 slot)
 {
     static char const* const names[] = {"head", "neck", "shoulder", "shirt", "chest", "waist", "legs", "feet",
@@ -570,6 +735,7 @@ Json::object ItemFacts(Player* player, ItemTemplate const* info, Item* item = nu
         result["bag"] = item->GetBagSlot();
         result["slot"] = item->GetSlot();
         result["equipped"] = Player::IsEquipmentPos(item->GetPos());
+        result["use_state"] = ItemUseState(player, item);
         if (CarriedItem(player, item))
         {
             result["start_quest"] = nullptr;
@@ -776,6 +942,7 @@ struct Actor
     uint32 lootSpell = 0;
     uint8 lootCastCount = 0;
     uint8 nextLootCastCount = 0;
+    uint8 nextItemUseCastCount = 0;
     Json::object journalBasic;
     bool journalDetailsReady = false;
     std::chrono::steady_clock::time_point journalNextDetails;
@@ -793,6 +960,25 @@ struct OpeningLoot
     ObjectGuid target;
     uint32 spell = 0;
     uint8 count = 0;
+};
+
+struct PendingItemUse
+{
+    std::string request;
+    ObjectGuid owner;
+    ObjectGuid item;
+    uint32 entry = 0;
+    uint32 spell = 0;
+    uint8 count = 0;
+    uint8 slot = 0;
+    bool aura = false;
+    bool go = false;
+    bool rejected = false;
+    bool unknown = false;
+    uint32 failure = 0;
+    std::string failureSource;
+    Json::object before;
+    std::chrono::steady_clock::time_point started;
 };
 
 struct TameAttempt
@@ -1120,11 +1306,15 @@ public:
                         "attack", "cast", "interact", "loot", "query_quest", "accept_quest", "complete_quest",
                         "request_reward", "reward_quest",
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
-                        "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "gossip_select",
+                        "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "use_item",
+                        "gossip_select",
                         "spirit_healer_activate", "reclaim_corpse",
                         "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
+                    {"item_use", Json::object{{"scope", "self_restoration_v1"},
+                        {"required", Json::array{"type", "item_guid"}}, {"additional_fields", false},
+                        {"async_receipt", true}, {"target_mode", "self"}}},
                     {"headless", true}, {"allowed_characters", AllowedNames()}});
             if (op == "action_result")
             {
@@ -1531,6 +1721,7 @@ public:
                 ProcessQuestAbandonCommands(*actor, player);
                 UpdateProtection(*actor, player);
                 ProcessOpeningLoot(*actor, player);
+                ProcessItemUse(*actor, player);
                 if (player->IsInWorld())
                     SampleJournal(*actor, player);
             }
@@ -2776,6 +2967,7 @@ public:
         Player* player = session->GetPlayer();
         if (!player || !session->IsHeadless())
             return;
+        CaptureItemUsePacket(session, packet);
         if (CurrentGuardAction && CurrentGuardAction->owner == player->GetGUID())
         {
             // Preserve a normal spell or scripted player gesture instead of
@@ -3921,6 +4113,8 @@ private:
         _ownedCharacters.erase(session);
         _lootWindows.erase(session);
         _openingLoot.erase(session);
+        _itemUses.erase(session);
+        _itemUseReceipts.erase(session);
         _rewardReceipts.erase(session);
         _partyInvites.erase(session);
         _tradeFrames.erase(session);
@@ -4796,6 +4990,8 @@ private:
         Json::object result{{"self", self}, {"sequence", sequence}, {"timestamp", timestamp}};
         result["recovery"] = RecoverySnapshot(player);
         result["trade"] = TradeSnapshot(player);
+        result["item_use"] = ItemUseSnapshot(player);
+        bool itemUsePending = result.at("item_use").as_object().at("pending").is_object();
         {
             std::lock_guard<std::mutex> lock(_eventMutex);
             auto trade = _tradeFrames.find(player->GetSession());
@@ -4958,11 +5154,12 @@ private:
         Json::array inventory;
         Json::array equipment;
         Json::array index;
-        auto addItem = [&inventory, &equipment, &index, player](Item* item, uint8 bag, uint8 slot)
+        auto addItem = [&inventory, &equipment, &index, player, itemUsePending](Item* item, uint8 bag, uint8 slot)
         {
             if (!item || inventory.size() >= 200)
                 return;
             Json::object facts = ItemFacts(player, item->GetTemplate(), item);
+            FenceItemUseFacts(facts, itemUsePending);
             inventory.emplace_back(facts);
             index.emplace_back(Json::object{{"guid", std::to_string(item->GetGUID().GetRawValue())},
                 {"entry", item->GetEntry()}, {"name", item->GetTemplate()->Name1}, {"count", item->GetCount()},
@@ -4996,7 +5193,11 @@ private:
         result["inspected_item"] = nullptr;
         if (auto actor = _actors.find(name); actor != _actors.end() && actor->second->inspectedItem)
             if (Item* item = player->GetItemByGuid(actor->second->inspectedItem); CarriedItem(player, item))
-                result["inspected_item"] = ItemFacts(player, item->GetTemplate(), item);
+            {
+                Json::object facts = ItemFacts(player, item->GetTemplate(), item);
+                FenceItemUseFacts(facts, itemUsePending);
+                result["inspected_item"] = std::move(facts);
+            }
         result["vendor"] = CommerceSnapshot(player, false);
         result["trainer"] = CommerceSnapshot(player, true);
         Json::array buyback;
@@ -5622,6 +5823,253 @@ private:
         return CommerceResult(request, player, beforeMoney, std::move(result));
     }
 
+    Json::object ItemUseIdentity(PendingItemUse const& pending)
+    {
+        return {{"request_id", pending.request}, {"action_type", "use_item"},
+            {"item_guid", std::to_string(pending.item.GetRawValue())}, {"item_id", pending.entry},
+            {"spell_id", pending.spell}, {"cast_count", pending.count},
+            {"attempted_action", Json::object{{"type", "use_item"},
+                {"item_guid", std::to_string(pending.item.GetRawValue())}}}};
+    }
+
+    Json::object ItemUseSnapshot(Player* player)
+    {
+        Json::object result{{"pending", nullptr}, {"last_receipt", nullptr}};
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        if (auto found = _itemUses.find(player->GetSession()); found != _itemUses.end())
+        {
+            Json::object pending = ItemUseIdentity(found->second);
+            pending["status"] = found->second.unknown ? "unknown" : "accepted";
+            pending["pending"] = true;
+            pending["fenced"] = true;
+            result["pending"] = std::move(pending);
+        }
+        if (auto found = _itemUseReceipts.find(player->GetSession()); found != _itemUseReceipts.end())
+            result["last_receipt"] = found->second;
+        return result;
+    }
+
+    Json::object ItemUseSample(Player* player, ObjectGuid source, uint32 entry, uint32 spell, uint8 slot)
+    {
+        Item* item = player->GetItemByGuid(source);
+        bool carried = CarriedItem(player, item);
+        return {{"source_present", carried}, {"source_count", carried ? item->GetCount() : 0},
+            {"entry_count", player->GetItemCount(entry, false)},
+            {"charges", carried ? Json::value(item->GetSpellCharges(slot)) : Json::value(nullptr)},
+            {"cooldown_ms", player->GetSpellCooldownDelay(spell)},
+            {"health", player->GetHealth()}, {"max_health", player->GetMaxHealth()},
+            {"mana", player->GetPower(POWER_MANA)}, {"max_mana", player->GetMaxPower(POWER_MANA)},
+            {"self_aura_present", player->GetAura(spell, player->GetGUID(), source) != nullptr}};
+    }
+
+    void CaptureItemUsePacket(WorldSession* session, WorldPacket const& packet)
+    {
+        uint32 opcode = packet.GetOpcode();
+        if (opcode != SMSG_SPELL_GO && opcode != SMSG_CAST_FAILED && opcode != SMSG_SPELL_FAILURE
+            && opcode != SMSG_INVENTORY_CHANGE_FAILURE)
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto found = _itemUses.find(session);
+        if (found == _itemUses.end())
+            return;
+        PendingItemUse& pending = found->second;
+        try
+        {
+            WorldPacket copy(packet);
+            if (opcode == SMSG_INVENTORY_CHANGE_FAILURE)
+            {
+                // An inventory error has no cast identity. Attribute it only
+                // within the exact synchronous normal-handler invocation.
+                if (CurrentGuardAction && CurrentGuardAction->request == pending.request
+                    && CurrentGuardAction->owner == pending.owner && !pending.go)
+                {
+                    uint8 error;
+                    copy >> error;
+                    if (error != EQUIP_ERR_OK)
+                    {
+                        pending.rejected = true;
+                        pending.failure = error;
+                        pending.failureSource = "inventory_error";
+                    }
+                }
+                return;
+            }
+            ObjectGuid castItem;
+            ObjectGuid caster;
+            uint8 count;
+            uint32 spell;
+            if (opcode == SMSG_SPELL_GO)
+                copy >> castItem.ReadAsPacked() >> caster.ReadAsPacked();
+            else if (opcode == SMSG_SPELL_FAILURE)
+                copy >> caster.ReadAsPacked();
+            copy >> count >> spell;
+            if (!ItemUseCastMatches(pending.owner.GetRawValue(), pending.item.GetRawValue(),
+                pending.spell, pending.count, caster.GetRawValue(), castItem.GetRawValue(), spell, count,
+                opcode != SMSG_CAST_FAILED, opcode == SMSG_SPELL_GO))
+                return;
+            if (opcode == SMSG_SPELL_GO)
+                pending.go = true;
+            else
+            {
+                uint8 error;
+                copy >> error;
+                pending.rejected = true;
+                pending.failure = error;
+                pending.failureSource = opcode == SMSG_CAST_FAILED ? "cast_failed" : "cast_interrupted";
+            }
+        }
+        catch (std::exception const&)
+        {
+            // A malformed/missing diagnostic can only leave an uncertain
+            // outcome. It must never authorize a duplicate consumable use.
+        }
+    }
+
+    void ProcessItemUse(Actor& actor, Player* player)
+    {
+        std::optional<PendingItemUse> pending;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (auto found = _itemUses.find(actor.session.get()); found != _itemUses.end())
+                pending = found->second;
+        }
+        if (!pending)
+            return;
+        bool expired = std::chrono::steady_clock::now() - pending->started > std::chrono::seconds(30);
+        ItemUseProgress progress = ItemUseReceiptProgress(pending->go, pending->rejected, expired);
+        if (progress == ItemUseProgress::Waiting || (progress == ItemUseProgress::Unknown && pending->unknown))
+            return;
+        bool uncertain = progress == ItemUseProgress::Unknown;
+        Json::object receipt = ItemUseIdentity(*pending);
+        Json::object after = ItemUseSample(player, pending->item, pending->entry, pending->spell, pending->slot);
+        receipt["status"] = uncertain ? "unknown" : pending->go ? "completed" : "failed";
+        receipt["pending"] = uncertain;
+        receipt["fenced"] = uncertain;
+        receipt["dispatched"] = true;
+        receipt["cast_emitted"] = pending->go;
+        receipt["cast_rejected"] = pending->rejected;
+        receipt["failure_source"] = pending->failureSource;
+        receipt["failure_code"] = pending->rejected ? Json::value(pending->failure) : Json::value(nullptr);
+        receipt["before"] = pending->before;
+        receipt["after"] = after;
+        auto delta = [&after, &pending](char const* key)
+        {
+            return int64(Number(after, key)) - int64(Number(pending->before, key));
+        };
+        Json::object changes{{"source_count", delta("source_count")}, {"entry_count", delta("entry_count")},
+            {"health", delta("health")}, {"mana", delta("mana")},
+            {"charges", nullptr}, {"cooldown_ms", delta("cooldown_ms")}};
+        bool chargesReduced = false;
+        if (after.at("charges").is_int64() && pending->before.at("charges").is_int64())
+        {
+            int64 beforeCharges = pending->before.at("charges").as_int64();
+            int64 afterCharges = after.at("charges").as_int64();
+            changes["charges"] = afterCharges - beforeCharges;
+            chargesReduced = std::abs(afterCharges) < std::abs(beforeCharges);
+        }
+        bool auraNew = pending->aura && after.at("self_aura_present").as_bool()
+            && !pending->before.at("self_aura_present").as_bool();
+        bool countReduced = delta("source_count") < 0 && delta("entry_count") < 0;
+        bool inventoryUnchanged = delta("source_count") == 0 && delta("entry_count") == 0 && !chargesReduced;
+        receipt["consumed"] = pending->go && (countReduced || chargesReduced) ? Json::value(true)
+            : !uncertain && inventoryUnchanged ? Json::value(false) : Json::value(nullptr);
+        receipt["applied"] = auraNew ? Json::value(true) : Json::value(nullptr);
+        receipt["restoration_aura_observed"] = auraNew;
+        receipt["changes"] = std::move(changes);
+        receipt["effect_attribution"] = "measured_self_state_changes_may_include_other_sources";
+        receipt["reason"] = uncertain ? "missing_correlated_cast_receipt_do_not_retry"
+            : pending->go ? "normal_item_spell_emitted" : "normal_item_use_rejected";
+        receipt["timestamp"] = Timestamp();
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _itemUses.find(actor.session.get());
+            if (found == _itemUses.end() || found->second.request != pending->request)
+                return;
+            _itemUseReceipts[actor.session.get()] = receipt;
+            if (uncertain)
+                found->second.unknown = true;
+            else
+                _itemUses.erase(found);
+        }
+        Json::object result = receipt;
+        result["item_use_receipt"] = receipt;
+        // An accepted call with a missing diagnostic is still pending. It is
+        // never an ordinary rejected-action envelope that permits a retry.
+        Finish(pending->request, pending->go || uncertain, std::move(result));
+    }
+
+    Json::object UseItemAction(Json::object const& request, Json::object const& action, Actor& actor, Player* player)
+    {
+        if (action.size() != 2 || !action.if_contains("type") || !action.if_contains("item_guid"))
+            return Error(request, "invalid_item_use", "Expected only type=use_item and the owned item_guid");
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (auto found = _itemUses.find(actor.session.get()); found != _itemUses.end())
+            {
+                auto response = Error(request, "item_use_in_progress",
+                    "Monitor the original item-use request; an uncertain outcome must not be retried");
+                Json::object result = ItemUseIdentity(found->second);
+                result["status"] = found->second.unknown ? "unknown" : "accepted";
+                result["pending"] = true;
+                response["result"] = std::move(result);
+                return response;
+            }
+        }
+        std::string guidText = Text(action, "item_guid");
+        if (guidText.empty() || guidText.front() == '0')
+            return Error(request, "invalid_item_guid", "item_guid must be a canonical nonzero decimal GUID");
+        ObjectGuid guid(GuidNumber(action, "item_guid"));
+        if (guidText != std::to_string(guid.GetRawValue()))
+            return Error(request, "invalid_item_guid", "item_guid must be a canonical nonzero decimal GUID");
+        Item* item = player->GetItemByGuid(guid);
+        if (!guid || !CarriedItem(player, item))
+            return Error(request, "item_not_carried", "Item must be a currently owned carried inventory instance");
+        Json::object state = ItemUseState(player, item);
+        if (!state.at("supported").as_bool() || !state.at("ready").as_bool())
+        {
+            auto response = Error(request, "item_use_unavailable", "Observe the current item use_state reasons");
+            response["result"] = Json::object{{"use_state", std::move(state)}};
+            return response;
+        }
+        RestorationUse use = SelfRestorationUse(item);
+        PendingItemUse pending;
+        pending.request = Text(request, "id");
+        pending.owner = player->GetGUID();
+        pending.item = guid;
+        pending.entry = item->GetEntry();
+        pending.spell = use.spell->Id;
+        pending.slot = use.slot;
+        pending.aura = use.aura;
+        if (!++actor.nextItemUseCastCount)
+            ++actor.nextItemUseCastCount;
+        pending.count = actor.nextItemUseCastCount;
+        pending.before = ItemUseSample(player, guid, pending.entry, pending.spell, pending.slot);
+        pending.started = std::chrono::steady_clock::now();
+        // Save scalar identity and the receipt first. The ordinary handler can
+        // consume/destroy the item and emit its spell packets synchronously.
+        uint8 bag = item->GetBagSlot();
+        uint8 slot = item->GetSlot();
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _itemUses[actor.session.get()] = pending;
+        }
+        WorldPacket packet(CMSG_USE_ITEM, 40);
+        packet << bag << slot << pending.count << pending.spell << guid << uint32(0) << uint8(0);
+        SpellCastTargets targets;
+        targets.SetUnitTarget(player);
+        targets.Write(packet);
+        ClearCosmeticEmote(actor, player);
+        actor.session->HandleUseItemOpcode(packet);
+        // Do not access item here: normal charge consumption may have deleted it.
+        Json::object result = ItemUseIdentity(pending);
+        result["status"] = "accepted";
+        result["pending"] = true;
+        result["dispatched"] = true;
+        result["consumed"] = nullptr;
+        result["applied"] = nullptr;
+        return Response(request, true, std::move(result));
+    }
+
     Json::object Action(Json::object const& request, std::string const& name)
     {
         GuardActionContext context;
@@ -5722,6 +6170,8 @@ private:
             return SpiritHealerAction(request, action, actor, player, type);
         if (!player->IsAlive() && !(type == "move_to" && IsReleasedGhost(player)))
             return Error(request, "dead", "Character is dead; no automatic revive or other GM shortcut is applied");
+        if (type == "use_item")
+            return UseItemAction(request, action, actor, player);
         if (auto commerce = CommerceAction(request, action, actor, player, type))
         {
             ClearCosmeticEmote(actor, player);
@@ -6568,6 +7018,8 @@ private:
     TextEmoteCorrelations _emoteCorrelations;
     std::map<WorldSession*, LootWindow> _lootWindows;
     std::map<WorldSession*, OpeningLoot> _openingLoot;
+    std::map<WorldSession*, PendingItemUse> _itemUses;
+    std::map<WorldSession*, Json::object> _itemUseReceipts;
     std::map<WorldSession*, uint32> _rewardReceipts;
     std::map<WorldSession*, CommerceMenu> _vendorMenus;
     std::map<WorldSession*, CommerceMenu> _trainerMenus;

@@ -92,7 +92,45 @@ Requests use `{v:1,id:string,op:string,character:string}`. `id` is required and
 limited to 128 bytes. Errors have `ok:false` and `error:{code,message}`.
 Mutating requests are deduplicated by ID in a bounded 512-entry cache; a duplicate
 ID with changed bytes is rejected. Retry the exact same encoded request after a
-transport failure. The cache is in memory and resets on server restart.
+transport failure for ordinary retry-safe operations. The cache is in memory
+and resets on server restart. **Never resend an uncertain `use_item`, even with
+the same UUID:** after a restart or cache eviction it could consume another
+item. Inspect the original `action_result` and the identity-bound `item_use`
+snapshot receipt instead. A lost receipt remains an unknown outcome.
+
+### Self-restoration item use
+
+`{"type":"use_item","item_guid":"<owned instance GUID>"}` supports an initial,
+deliberately narrow item family: a carried potion or food/drink with one normal
+on-use spell containing only self healing, mana restoration, or ordinary self
+regeneration effects. It excludes item scripts, spell scripts/linked effects,
+on-use enchants, other targets, area effects, triggered effects, damage,
+reflection, glyphs and travel/teleport items. Quest tools and arbitrary carried
+items are not supported by this first increment. The caller cannot select a
+spell, target, quantity or coordinates. Normal item-use handlers, eligibility,
+cooldowns, charges and Moon guards remain in force.
+
+Owned inventory and inspected-item facts include `use_state` with a supported
+flag, partial readiness checks/reasons, actual spell identity, restoration type,
+current cooldown, charges and an exact `next_action` when those checks pass.
+Readiness is not a prediction of every native condition or script hook: normal
+global item/player hooks can still veto use. The bridge neither stops movement
+nor chooses when to use an item. Food/drink requires the character to stop first.
+
+Use returns accepted/pending, not a consumption or healing claim. Before normal
+dispatch the bridge binds one pending request to the source item, character,
+spell and cast count. The next safe world tick records matching spell execution
+or failure plus newly sampled count, charges, cooldown, aura, health and mana.
+`cast_emitted`, `consumed` and `applied` are separate facts; unknown application
+is `null`. Health/mana deltas may include other sources. A drink receipt does
+not claim that future regeneration ticks have already happened.
+
+`item_use.pending` and `item_use.last_receipt` expose the original request identity
+for controller recovery. A missing diagnostic times out as `unknown`
+with its native fence retained. It does not authorize another consumable use.
+Native pending state and receipts are memory-only; clients must retain their
+own unresolved request across reconnects/restarts and must not infer rejection
+from a missing native cache entry.
 
 - `capabilities`: `result.protocol`, `result.operations`, `result.actions` describe
   the implemented interface. Character is optional for this operation.

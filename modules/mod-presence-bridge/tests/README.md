@@ -19,6 +19,11 @@ filter. It also has its own `main`.
 interruptions, overrides and actual stored-count deltas in 61 isolated checks.
 It has its own `main` and does not connect to a running server.
 
+`item-use-policy-tests.cpp` checks item/caster/spell/cast-count identity and
+accepted, emitted, rejected and uncertain receipt states in 44 isolated checks.
+It has its own `main` and does not connect to a running server. Missing cast
+diagnostics remain uncertain and never authorize another consumable use.
+
 Each file has its own `main` and must be compiled as a separate C++20 executable.
 For example, from this directory with an available C++ compiler:
 
