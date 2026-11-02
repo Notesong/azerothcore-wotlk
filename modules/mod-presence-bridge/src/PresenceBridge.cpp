@@ -11,10 +11,12 @@
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "Config.h"
+#include "Corpse.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
 #include "GameObject.h"
+#include "GameTime.h"
 #include "GossipDef.h"
 #include "Group.h"
 #include "GridNotifiers.h"
@@ -1119,7 +1121,7 @@ public:
                         "request_reward", "reward_quest",
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "gossip_select",
-                        "spirit_healer_activate",
+                        "spirit_healer_activate", "reclaim_corpse",
                         "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
@@ -1972,10 +1974,62 @@ public:
         }
     }
 
+    Json::value CorpseReclaimSnapshot(Player* player)
+    {
+        Corpse* corpse = player->GetCorpse();
+        if (!corpse)
+        {
+            if (!player->HasCorpse())
+                return nullptr;
+            // A remembered location does not prove a currently resolvable corpse GUID or reclaim eligibility.
+            WorldLocation location = player->GetCorpseLocation();
+            return Json::object{{"target_guid", nullptr}, {"map_id", location.GetMapId()},
+                {"instance_id", nullptr}, {"position", Json::object{{"x", location.GetPositionX()},
+                    {"y", location.GetPositionY()}, {"z", location.GetPositionZ()},
+                    {"orientation", location.GetOrientation()}}},
+                {"same_map", nullptr}, {"distance_yards", nullptr},
+                {"reclaim_radius_yards", CORPSE_RECLAIM_RADIUS}, {"within_range", nullptr},
+                {"remaining_delay_ms", nullptr}, {"can_reclaim", false},
+                {"reason", "corpse_not_resolved_on_current_map"}, {"next_action", nullptr}};
+        }
+        bool sameMap = corpse->IsInMap(player);
+        bool withinRange = sameMap && corpse->IsWithinDist(player, CORPSE_RECLAIM_RADIUS, true);
+        time_t availableAt = corpse->GetGhostTime()
+            + player->GetCorpseReclaimDelay(corpse->GetType() == CORPSE_RESURRECTABLE_PVP);
+        int64 remaining = std::max<int64>(0, int64(availableAt) - GameTime::GetGameTime().count())
+            * IN_MILLISECONDS;
+        std::string reason;
+        if (player->IsAlive())
+            reason = "already_alive";
+        else if (player->InArena())
+            reason = "arena";
+        else if (!IsReleasedGhost(player))
+            reason = "not_released_ghost";
+        else if (corpse->GetOwnerGUID() != player->GetGUID())
+            reason = "corpse_owner_mismatch";
+        else if (remaining)
+            reason = "reclaim_delay";
+        else if (!sameMap)
+            reason = "different_map_or_instance";
+        else if (!withinRange)
+            reason = "out_of_range";
+        std::string guid = std::to_string(corpse->GetGUID().GetRawValue());
+        Json::object result{{"target_guid", guid}, {"map_id", corpse->GetMapId()},
+            {"instance_id", corpse->GetInstanceId()}, {"position", PositionOf(corpse)},
+            {"same_map", sameMap}, {"distance_yards", sameMap ? Json::value(corpse->GetDistance(player)) : nullptr},
+            {"reclaim_radius_yards", CORPSE_RECLAIM_RADIUS},
+            {"within_range", sameMap ? Json::value(withinRange) : nullptr},
+            {"remaining_delay_ms", remaining}, {"can_reclaim", reason.empty()},
+            {"reason", reason}, {"next_action", nullptr}};
+        if (reason.empty())
+            result["next_action"] = Json::object{{"type", "reclaim_corpse"}, {"target_guid", guid}};
+        return result;
+    }
+
     Json::object RecoverySnapshot(Player* player)
     {
         RefreshSpiritHealerFrames(player);
-        Json::object result{{"is_ghost", IsReleasedGhost(player)},
+        Json::object result{{"is_ghost", IsReleasedGhost(player)}, {"corpse", CorpseReclaimSnapshot(player)},
             {"spirit_healer_confirmation", nullptr}, {"receipt", nullptr}};
         std::lock_guard<std::mutex> lock(_eventMutex);
         if (auto found = _spiritHealerConfirmations.find(player->GetSession());
@@ -1992,6 +2046,52 @@ public:
         if (auto found = _spiritRecoveryReceipts.find(player->GetSession()); found != _spiritRecoveryReceipts.end())
             result["receipt"] = found->second;
         return result;
+    }
+
+    Json::object ReclaimCorpseAction(Json::object const& request, Json::object const& action,
+        Actor& actor, Player* player)
+    {
+        ObjectGuid target(GuidNumber(action, "target_guid"));
+        Corpse* corpse = player->GetCorpse();
+        if (!target || !corpse || corpse->GetGUID() != target || corpse->GetOwnerGUID() != player->GetGUID())
+            return Error(request, "corpse_not_current", "Select this character's currently observed own corpse GUID");
+        Json::value state = CorpseReclaimSnapshot(player);
+        if (!state.is_object() || !state.as_object().at("can_reclaim").as_bool())
+            return Error(request, "corpse_reclaim_unavailable",
+                "Normal corpse reclaim requires a released ghost outside an arena, "
+                "elapsed delay and nearby own corpse");
+        bool aliveBefore = player->IsAlive();
+        bool ghostBefore = IsReleasedGhost(player);
+        uint32 healthBefore = player->GetHealth();
+        // This is a chosen local reclaim attempt; do not carry ghost travel into the living state.
+        ClearCosmeticEmote(actor, player);
+        player->GetMotionMaster()->Clear();
+        player->StopMoving();
+        if (!actor.motionId.empty())
+            Finish(actor.motionId, false, {{"status", "failed"}, {"reason", "superseded_by_corpse_reclaim"}});
+        actor.motionId.clear();
+        WorldPacket packet(CMSG_RECLAIM_CORPSE, 8);
+        packet << target;
+        actor.session->HandleReclaimCorpseOpcode(packet);
+        // The normal handler converts/deletes the corpse; never dereference the previous pointer here.
+        bool aliveAfter = player->IsAlive();
+        bool ghostAfter = IsReleasedGhost(player);
+        bool recovered = !aliveBefore && ghostBefore && aliveAfter && !ghostAfter;
+        Json::object receipt{{"request_id", Text(request, "id")},
+            {"target_guid", std::to_string(target.GetRawValue())}, {"method", "normal_corpse_reclaim"},
+            {"status", recovered ? "completed" : "failed"},
+            {"reason", recovered ? "" : "normal_handler_did_not_restore_life"},
+            {"life_changed", aliveBefore != aliveAfter}, {"alive_before", aliveBefore}, {"alive_after", aliveAfter},
+            {"is_ghost_before", ghostBefore}, {"is_ghost_after", ghostAfter},
+            {"health_before", healthBefore}, {"health_after", player->GetHealth()},
+            {"corpse_before", std::move(state)}, {"corpse_remaining", player->GetCorpse() != nullptr}};
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _spiritRecoveryReceipts[actor.session.get()] = receipt;
+        }
+        return Response(request, true, {{"status", recovered ? "completed" : "failed"},
+            {"reason", recovered ? "" : "normal_handler_did_not_restore_life"},
+            {"request_id", Text(request, "id")}, {"recovery_receipt", std::move(receipt)}});
     }
 
     Json::object SpiritHealerAction(Json::object const& request, Json::object const& action,
@@ -5615,6 +5715,8 @@ private:
             return Error(request, "protection_escape",
                 "Protected creature avoidance is active; no health override applies");
         }
+        if (type == "reclaim_corpse")
+            return ReclaimCorpseAction(request, action, actor, player);
         if (type == "spirit_healer_activate"
             || (!player->IsAlive() && (type == "interact" || type == "gossip_select")))
             return SpiritHealerAction(request, action, actor, player, type);
