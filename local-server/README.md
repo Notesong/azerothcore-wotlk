@@ -167,6 +167,29 @@ passwords, account IDs and character GUIDs must be configured locally; they are
 deliberately absent. Auction provisioning resolves new instance-specific IDs.
 Keep local administration endpoints on loopback and never publish credentials.
 
+### Marketkeeper buying profile
+
+The November 2 buyer tune reviews up to 100 eligible listings per house each minute.
+Its price ceilings use vendor sell value times stack size and a quality multiplier:
+
+| Quality | Previous multiplier | Current multiplier |
+| --- | ---: | ---: |
+| White/common | 3 | 50 |
+| Green/uncommon | 5 | 30 |
+| Blue/rare | 12 | 40 |
+| Purple/epic | 15 | 60 |
+
+The larger common-item allowance covers basic materials with tiny vendor values.
+Seller stock, seller prices, other quality caps and the normal auction mail delay
+are preserved. `scripts/Tune-Auction-Buyer.py` previews the profile; `--apply` saves
+a full before snapshot and uses the module's live commands, without a restart.
+The installed receipt is `economy-integration/buyer-settings.json`.
+
+The upstream buyer randomly bids within its ceiling and buys out when that bid
+reaches the buyout price. It excludes auctions on which it is already the highest
+bidder, so those bids still wait for auction expiry. This profile makes buyouts
+more likely for new/unbid listings; it does not guarantee every listing sells.
+
 Do not run `Configure-Server.ps1` over a configured server: it is the historical
 initial setup helper and restores older baseline choices. `First-Start.ps1` is
 also a historical initial provisioning helper. Routine operation uses
