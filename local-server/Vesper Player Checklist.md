@@ -1,6 +1,6 @@
 # Vesper player checklist
 
-Status checked: **November 1, 2026**. This is the development and playtest list for Vesper's
+Status checked: **November 2, 2026**. This is the development and playtest list for Vesper's
 Presence-controlled Blood Elf Paladin.
 
 **Expose grounded facts and exact legal actions; let Vesper's model choose.** The controller should execute chosen persistent intentions, notice meaningful changes, invalidate stale claims, and keep latency and token use reasonable. Available mechanics are not proof of good autonomous play. Preserve his agency while enforcing the standing Moon protection rule.
@@ -421,9 +421,22 @@ is not proof that an item exists on this corpse.
 ## 19. Conversation and real emotes — mechanics installed; needs playtest
 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
-- [x] Route conversation and autonomous emotes through the social lane and mechanical choices through the body lane.
+- [x] Route conversation and autonomous emotes through the social lane; Full's shared controller executes gameplay choices.
   Body output cannot echo the human's chat as Vesper's own line. Direct MCP speech/emote controls remain available.
   Optional evidence-backed body reports are installed below; model behavior still needs a playtest.
+- [x] Install and verify native Full social gameplay: reserve one primary action slot for an already eligible
+  social call, refresh and validate relevant facts after generation, and use the same policies, normal native
+  actions, MCP interlock, Moon guard and original-request uncertainty handling as the body.
+- [x] Preserve accepted continuing social intentions across routine body reviews, while keeping danger,
+  new human input, protection changes, completion and failure meaningful interrupts. Social wait keeps the body intention.
+- [x] Retain the actual social request/capture, model identity, validation facts and execution result, with
+  lane-specific Moon audits. A proposed or accepted interaction is not proof of a completed teleport.
+- [x] Expose a bounded `needs_reasoning_help` cue from repeated verified body failures to the next existing
+  social call, preserving exact request/action/error context without extra API polling or forced retries.
+- [ ] Playtest a social-chosen mechanical action and its actual effect; verify Qwen resumes useful work afterward.
+  Installed November 2 with 2,800 controller checks, 100 independently repeated feature/audit checks,
+  321 harness tests plus 86 subtests, and 91 Gateway checks against both source and compiled output.
+  Readiness checks confirmed Full running, control released and saved settings preserved; the world server stayed online.
 - [x] Brief native interaction gestures accompany verified NPC/menu/quest progress and corpse-loot opening, without extra chat or persistent poses. Normal chest opening keeps its existing spell animation.
 - [x] Send ordinary named/targeted WoW emotes through the real emote channel, including hug, point, kiss and slap. Named gestures and custom prose are distinct; completion requires an actual normal-handler delivery receipt.
 - [x] Expose actor + emote + authoritative explicit target facts. Directed incoming player gestures can reach the social inbox once per event; unknown/untargeted gestures do not force a direct wake. Target identity is never guessed from a name.

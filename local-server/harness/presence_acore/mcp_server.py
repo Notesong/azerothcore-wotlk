@@ -36,7 +36,7 @@ MAX_FRAME_BYTES = 65_536
 MAX_RESPONSE_BYTES = 2_097_152
 MAX_FILE_BYTES = 262_144
 DEFAULT_PRESENCE_ROOT = Path("C:/Files/Programs/Codex/Presence/working")
-_SECRET_KEY = re.compile(r"password|secret|credential|api.?key|authorization|access.?token", re.I)
+_SECRET_KEY = re.compile(r"password|secret|credential|api.?key|authorization|access.?token|^control_token$", re.I)
 _STATUS_KEYS = (
     "running", "paused", "started_at", "last_tick_at", "last_action_at",
     "game_backend", "controlled_character", "gameplay_model_calls", "social_model_calls",
@@ -45,7 +45,7 @@ _STATUS_KEYS = (
     "scene_ledger_text", "scene_ledger_updated_at", "native_images_enabled",
     "continuity_import_status",
     "game_chronicle_recall_enabled", "last_game_chronicle_recall_at",
-    "last_decision", "last_execution", "native_observation_sequence",
+    "last_decision", "last_execution", "native_observation_sequence", "native_shared_control",
 )
 _CHRONICLE_KEYS = (
     "id", "timestamp", "marked_at", "summary", "why_memorable", "location",
@@ -156,11 +156,14 @@ class Inspector:
         state, _ = _safe_json(self.data_dir / f"{prefix}-state.json")
         control, _ = _safe_json(self.data_dir / f"{prefix}-control.json")
         selected = {key: status[key] for key in _STATUS_KEYS if key in status}
+        if social:
+            selected.pop("native_shared_control", None)  # Shared primary ownership belongs to Full only.
         attributed = (str(status.get("controlled_character") or "").casefold() == self.character.casefold()
                       and status.get("game_backend") == "azerothcore")
         selected["attributed_to_configured_character"] = attributed
         if not attributed:
-            for key in ("last_decision", "last_execution", "scene_ledger_text", "native_observation_sequence"):
+            for key in ("last_decision", "last_execution", "scene_ledger_text", "native_observation_sequence",
+                        "native_shared_control"):
                 selected.pop(key, None)
             selected["context_note"] = "Recorded status is not explicitly attributed to this native character."
         selected["reported_running"] = bool(selected.pop("running", False))
@@ -377,7 +380,7 @@ class Server:
                            "description": "Event cursor from an earlier observation; zero includes available recent events."}},
                  "additionalProperties": False}, "annotations": annotations},
             {"name": "wow_model_context", "title": "Inspect WoW model context",
-             "description": "Inspect a recorded body/social request, a fresh compact live_preview, or the body's last_violation with its preserved request context and guard result. This is not hidden reasoning or the entire persona. Does not run a model or control gameplay.",
+             "description": "Inspect a recorded body/social request, a fresh compact live_preview, or the selected lane's last_violation with its preserved request context and guard result. This is not hidden reasoning or the entire persona. Does not run a model or control gameplay.",
              "inputSchema": {"type": "object", "properties": {
                  "lane": {"type": "string", "enum": ["body", "social"], "default": "body"},
                  "source": {"type": "string", "enum": ["last_request", "live_preview", "last_violation"], "default": "last_request"}},

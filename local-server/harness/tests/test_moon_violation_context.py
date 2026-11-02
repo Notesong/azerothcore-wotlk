@@ -98,7 +98,7 @@ class MoonContextTests(unittest.TestCase):
     def test_missing_or_write_failure_are_distinct_and_social_lane_is_explicit(self):
         missing = self.inspector.model_context(source='last_violation')
         self.assertEqual(missing['error']['code'], 'no_recorded_violation')
-        self.assertEqual(self.inspector.model_context(lane='social', source='last_violation')['error']['code'], 'violations_body_only')
+        self.assertEqual(self.inspector.model_context(lane='social', source='last_violation')['error']['code'], 'no_recorded_violation')
         self.write('runtime-game-player-moon-audit-status.json', {**status(), 'latest_incident_id': None,
                                                                'last_error': 'audit_write_failed'})
         failed = self.inspector.model_context(source='last_violation')
@@ -185,6 +185,75 @@ class MoonContextTests(unittest.TestCase):
         record['provenance']['planner_had_moon_instruction'] = False
         self.install(record)
         self.assertEqual(self.inspector.model_context(source='last_violation')['error']['code'], 'invalid_violation')
+
+    def install_social(self, record=None):
+        record = deepcopy(record or incident())
+        record['lane'] = record['capture']['lane'] = 'social'
+        record['capture']['context']['planner_mode'] = 'social'
+        self.write('runtime-game-player-moon-audit-status-social.json', status())
+        self.write('runtime-game-player-moon-violations-social/' + 'e' * 32 + '.json', record)
+        return record
+
+    def test_social_guard_reads_only_its_own_preserved_context_after_new_body_and_social_requests(self):
+        body = incident()
+        self.install(body)
+        social = self.install_social()
+        social['capture']['context']['session_state']['notes'] = 'Social source context ♥ ' * 200
+        self.install_social(social)
+        self.write('runtime-game-player-context-body.json', capture())
+        self.write('runtime-game-player-context-social.json', capture('social'))
+        value = self.inspector.model_context(lane='social', source='last_violation')
+        self.assertTrue(value['available'])
+        self.assertEqual(value['capture'], social['capture'])
+        self.assertEqual(value['violation']['lane'], 'social')
+        self.assertEqual(self.inspector.model_context(source='last_violation')['capture'], body['capture'])
+        self.assertEqual(self.client.observations, [])
+
+    def test_social_guard_never_borrows_body_and_rejects_cross_lane_or_failed_capture(self):
+        self.install()
+        self.assertEqual(self.inspector.model_context(lane='social', source='last_violation')['error']['code'],
+                         'no_recorded_violation')
+        for mutation in ('capture_lane', 'record_lane', 'capture_id', 'outcome', 'http_status'):
+            record = self.install_social()
+            if mutation == 'capture_lane':
+                record['capture']['lane'] = 'body'
+            elif mutation == 'record_lane':
+                record['lane'] = 'body'
+            elif mutation == 'capture_id':
+                record['provenance']['capture_id'] = 'f' * 32
+            elif mutation == 'outcome':
+                record['capture']['outcome']['state'] = 'request_error'
+            else:
+                record['capture']['outcome']['http_status'] = 400
+            self.write('runtime-game-player-moon-violations-social/' + 'e' * 32 + '.json', record)
+            value = self.inspector.model_context(lane='social', source='last_violation')
+            self.assertEqual(value['error']['code'], 'invalid_violation')
+            self.assertNotIn('capture', value)
+
+    def test_social_guard_keeps_identical_privacy_filters_and_read_only_dispatch(self):
+        record = self.install_social()
+        record['planned_action']['api_key'] = 'DO-NOT-ECHO'
+        self.write('runtime-game-player-moon-violations-social/' + 'e' * 32 + '.json', record)
+        server = Server(self.inspector)
+        initialize(server)
+        result = server.handle(request('tools/call', {'name': 'wow_model_context',
+            'arguments': {'lane': 'social', 'source': 'last_violation'}}))['result']['structuredContent']
+        self.assertTrue(result['available'])
+        self.assertTrue(result['transport_truncated'])
+        self.assertNotIn('DO-NOT-ECHO', json.dumps(result))
+        self.assertEqual(self.client.observations, [])
+
+    def test_full_social_preview_uses_action_capable_projection_without_changing_recorded_context(self):
+        seen = []
+        def compact(value, mode):
+            seen.append(mode)
+            return {'object': {'guid': '77'}, 'protection': {'instruction': 'Keep Moon safe'}}
+        with patch('presence_acore.model_context._projection', return_value=compact):
+            value = self.inspector.model_context(lane='social', source='live_preview')
+        self.assertTrue(value['available'])
+        self.assertEqual(seen, ['social_gameplay'])
+        self.assertEqual(value['preview']['native_observation']['object']['guid'], '77')
+        self.assertFalse(value['preview']['is_actual_request'])
 
 
 if __name__ == '__main__':

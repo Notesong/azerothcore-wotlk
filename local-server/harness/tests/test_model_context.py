@@ -172,14 +172,14 @@ class ModelContextTests(unittest.TestCase):
         self.client.observations.clear()
         self.client.observe = lambda *args, **kwargs: deepcopy(observation)
         projection = _projection(self.inspector.presence_root)
-        for lane, mode in (("body", "gameplay"), ("social", "social")):
+        for lane, mode in (("body", "gameplay"), ("social", "social_gameplay")):
             with self.subTest(lane=lane):
                 # Exercise the default projection independently of live model settings.
                 with patch("presence_acore.model_context._read_json", return_value=({}, "no_recorded_request")):
                     value = self.inspector.model_context(lane=lane, source="live_preview")
                 self.assertTrue(value["available"])
                 preview = value["preview"]
-                self.assertEqual(preview["native_observation"], projection(observation, mode))
+                self.assertEqual(preview["native_observation"], projection({**observation, '_fresh': True}, mode))
                 self.assertFalse(preview["is_actual_request"])
                 self.assertEqual(preview["basis"], "fresh_bridge_snapshot")
                 self.assertIn("controller_enrichment", preview["unavailable_sections"])
@@ -252,6 +252,36 @@ def stamp(number):
 
     def tearDown(self):
         self.directory.cleanup()
+
+    def test_on_demand_preview_grounds_real_ready_offers_without_fabricating_controller_state(self):
+        helper = Path('C:/Files/Programs/Codex/Presence/working/backend/tools/game_player_native_item_use.py')
+        if not helper.is_file():
+            self.skipTest('Presence item-use projection source is not installed')
+        (self.tools / helper.name).write_bytes(helper.read_bytes())
+        self.context.write_text(
+            'from tools.game_player_native_item_use import item_use_context\n'
+            'def compact_native_observation(value, mode="gameplay"):\n'
+            '    return {"item_choices": item_use_context(value), "controller": value.get("controller")}\n',
+            encoding='utf-8')
+        action = {'type': 'use_item', 'item_guid': '123'}
+        raw = {'sequence': 8, 'self': {'alive': True}, 'inventory': [{'guid': '123', 'count': 1,
+            'use_state': {'supported': True, 'ready': True, 'target_mode': 'self', 'scope': 'self_restoration_v1',
+                'cooldown_ms': 0, 'spell_id': 439, 'restores_health': True, 'next_action': action}}]}
+        original = deepcopy(raw)
+        client = FakeClient()
+        client.observe = lambda *args, **kwargs: raw
+        inspector = Inspector(client, presence_root=self.root, data_dir=self.root)
+        for lane in ('body', 'social'):
+            value = inspector.model_context(lane=lane, source='live_preview')
+            self.assertTrue(value['available'])
+            view = value['preview']['native_observation']
+            self.assertEqual(view['item_choices']['candidates'][0]['next_action'], action)
+            self.assertIsNone(view['controller'])
+            self.assertFalse(value['preview']['is_actual_request'])
+        self.assertEqual(raw, original)
+        raw['_fresh'] = False
+        stale = inspector.model_context(lane='social', source='live_preview')
+        self.assertEqual(stale['preview']['native_observation']['item_choices']['candidates'], [])
 
     def test_fresh_standalone_loader_needs_no_tools_package_or_global_import_mutation(self):
         # -I -S removes the current directory, PYTHONPATH, and site packages.
@@ -486,7 +516,9 @@ def stamp(number):
         self.assertEqual(view["gear_guidance"]["source"], "advisory_default")
         self.assertIn("not an observed talent specialization", view["gear_guidance"]["profile"])
         self.assertTrue(social["available"])
-        self.assertNotIn("gear_guidance", social["preview"]["native_observation"])
+        self.assertEqual(social["preview"]["native_observation"]["gear_guidance"], view["gear_guidance"])
+        legacy_social = _projection(self.root)(observation, "social")
+        self.assertNotIn("gear_guidance", legacy_social)
         self.assertEqual(observation, before)
         self.assertFalse(list(self.root.rglob("__pycache__")))
 

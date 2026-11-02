@@ -73,7 +73,7 @@ class AttentionProjectionTests(unittest.TestCase):
             # identifies its format; an extra mode field would falsely flag truncation.
             self.assertNotIn('projection_mode', body['preview'])
             self.assertEqual(body['preview']['native_observation']['mode'], 'local_gameplay')
-            self.assertEqual(social['preview']['native_observation']['mode'], 'social')
+            self.assertEqual(social['preview']['native_observation']['mode'], 'social_gameplay')
             self.assertNotIn('DO_NOT_FORWARD', json.dumps(body))
 
 

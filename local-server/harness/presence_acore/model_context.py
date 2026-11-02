@@ -14,6 +14,8 @@ MAX_CAPTURE_BYTES = 262_144
 MAX_MOON_RECORD_BYTES = 327_680
 _MOON_ARCHIVE = "runtime-game-player-moon-violations"
 _MOON_STATUS = "runtime-game-player-moon-audit-status.json"
+_MOON_ARCHIVES = {"body": _MOON_ARCHIVE, "social": "runtime-game-player-moon-violations-social"}
+_MOON_STATUSES = {"body": _MOON_STATUS, "social": "runtime-game-player-moon-audit-status-social.json"}
 _AUDIT_STATUS_FIELDS = {"schema", "character", "latest_incident_id", "updated_at", "last_error", "retained_records",
                         "total_recorded", "total_rotated", "max_records", "max_record_bytes"}
 _VIOLATION_FIELDS = {"schema", "inspection_only", "character", "lane", "incident_id", "recorded_at", "classification",
@@ -283,14 +285,19 @@ def _clean_audit_value(value: Any, allowed: set[str] | None = None, depth: int =
     return value, False
 
 
-def _clean_violation(raw: dict[str, Any], character: str, incident_id: str) -> tuple[dict[str, Any], dict[str, Any], bool]:
+def _clean_violation(raw: dict[str, Any], character: str, incident_id: str,
+                     lane: str = "body") -> tuple[dict[str, Any], dict[str, Any], bool]:
     if (raw.get("schema") != "moon-violation/v1" or raw.get("inspection_only") is not True
-            or raw.get("character") != character or raw.get("lane") != "body" or raw.get("incident_id") != incident_id
+            or raw.get("character") != character or raw.get("lane") != lane or raw.get("incident_id") != incident_id
             or raw.get("classification") not in {"planner_protected_target_proposal", "planner_action_with_protected_effect_blocked",
                                                   "guard_intervention_requires_review"}):
         raise ValueError("invalid_violation")
     _timestamp(raw.get("recorded_at"))
-    capture, changed = _clean_capture(raw.get("capture"), "body", character)
+    capture, changed = _clean_capture(raw.get("capture"), lane, character)
+    outcome = capture["outcome"]
+    if (outcome.get("state") != "response_received" or type(outcome.get("http_status")) is not int
+            or not 200 <= outcome["http_status"] < 300):
+        raise ValueError("invalid_violation")
     clean, reduced = _clean_audit_value(raw, _VIOLATION_FIELDS | {"capture"})
     changed |= reduced
     clean.pop("capture", None)
@@ -378,9 +385,7 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
         return result
 
     if source == "last_violation":
-        if lane != "body":
-            return unavailable("violations_body_only")
-        status, availability = _read_json(data_dir / _MOON_STATUS, 16_384)
+        status, availability = _read_json(data_dir / _MOON_STATUSES[lane], 16_384)
         if availability != "available":
             return unavailable("no_recorded_violation" if availability == "no_recorded_request" else "audit_status_unavailable")
         if (status.get("schema") != "moon-audit-status/v1" or status.get("character") != character
@@ -395,8 +400,9 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
         incident_id = status.get("latest_incident_id")
         if not isinstance(incident_id, str) or not re.fullmatch(r"[a-f0-9]{32}", incident_id):
             return unavailable("audit_write_failed" if status.get("last_error") else "no_recorded_violation")
-        archive = data_dir / _MOON_ARCHIVE
-        if archive.is_symlink() or archive.resolve() != data_dir.resolve() / _MOON_ARCHIVE:
+        archive_name = _MOON_ARCHIVES[lane]
+        archive = data_dir / archive_name
+        if archive.is_symlink() or archive.resolve() != data_dir.resolve() / archive_name:
             return unavailable("unsafe_archive_directory")
         path = archive / f"{incident_id}.json"
         if path.is_symlink():
@@ -405,7 +411,7 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
         if availability != "available":
             return unavailable("violation_record_unavailable")
         try:
-            violation, capture, changed = _clean_violation(raw, character, incident_id)
+            violation, capture, changed = _clean_violation(raw, character, incident_id, lane)
             result.update(violation=violation, capture=capture,
                           runtime=_runtime(data_dir, capture, character, pid_alive),
                           age_sec=max(0.0, round((datetime.now(timezone.utc) - _timestamp(violation["recorded_at"])).total_seconds(), 1)))
@@ -443,7 +449,14 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
         raw = client.observe(character, after_event_id=0)
         if not isinstance(raw, dict):
             return unavailable("observation_failed")
-        projection_mode = "gameplay" if lane == "body" else "social"
+        # This is a new on-demand read, without the autonomous adapter's private
+        # freshness enrichment. Supply only that fact to pure offer helpers;
+        # preserve an explicit stale marker and never mutate the raw snapshot.
+        projection_input = dict(raw)
+        projection_input.setdefault("_fresh", True)
+        # This inspector serves Full's two lanes. The action-capable Full social
+        # view is separate from the standalone legacy Social projection.
+        projection_mode = "gameplay" if lane == "body" else "social_gameplay"
         if lane == "body":
             saved, _ = _read_json(presence_root / "local" / "game_player.config.json")
             identity = saved.get("session_state") if isinstance(saved.get("session_state"), dict) else {}
@@ -452,7 +465,7 @@ def inspect_model_context(client: Any, *, character: str, presence_root: Path, d
                     and isinstance(saved.get("native_action_base_url"), str) and saved["native_action_base_url"].strip()):
                 projection_mode = "local_gameplay"
         result["preview"] = {"basis": "fresh_bridge_snapshot", "is_actual_request": False,
-                             "native_observation": compact(raw, projection_mode),
+                             "native_observation": compact(projection_input, projection_mode),
                              "unavailable_sections": ["controller_enrichment", "session_notes", "recent_chat_transcript",
                                                       "scene_ledger", "persona", "images"]}
         result["available"] = True

@@ -24,8 +24,11 @@ receiving your gesture does not reset it or require a reply.
 
 These are social gestures, not fixed commands that order a particular reply.
 
-Conversation and autonomous emotes belong to the social lane; the body lane
-chooses gameplay actions. The body-reporting update below also permits brief body
+Conversation and autonomous emotes belong to the social lane. In native **Full** mode,
+an active social call can also choose a normal gameplay action through the shared controller.
+That turn reserves one primary action slot instead of also dispatching a Qwen action.
+Social `wait` preserves the existing body intention. The standalone legacy Social-only mode
+keeps its speech/emote behavior. The body-reporting update below also permits brief body
 reports supported by current gameplay evidence. Body output cannot repeat your
 chat as Vesper's own speech. Direct MCP speech and emote controls remain available.
 
@@ -50,6 +53,22 @@ See the learned-abilities section in [Vesper Voice.md](Vesper%20Voice.md) for th
 exact identity rules and limits.
 
 ## Party contact and following
+
+In native Full mode, an already eligible social call may choose an observed object interaction,
+movement, combat, quest or upkeep action. It uses the same controller, execution policies, normal
+game validation and Moon guard as the body. The controller checks current relevant facts after
+generation before dispatching; a new instruction, takeover, pause or material danger can invalidate
+the proposal. Accepted continuing work remains visible to the body between meaningful events.
+
+`native_shared_control` in `wow_status` exposes the source lane/model, request and validation sequences,
+actual outcomes and small before/after actor samples. These samples report observed changes without
+claiming their cause. A chosen action, an accepted interaction and delivered speech are distinct from
+verified gameplay effects. A translocation orb uses normal `interact` on its currently observed GUID;
+following someone's upstairs coordinates does not itself use the orb.
+
+Repeated verified failures can supply a bounded `needs_reasoning_help` cue to the next ordinary social
+call. It includes exact action identities, native request IDs and error facts. The cue adds no API
+heartbeat and does not force a response or retry; uncertain operations retain their original-request fence.
 
 An accepted `follow` tracks the current player. Choosing `move_to` at that
 player's snapshot coordinates replaces tracking with a fixed destination.
@@ -658,6 +677,7 @@ protection still apply.
 | `wow_model_context({"lane":"body","source":"last_request"})` | Dynamic context recorded at the latest body-model request attempt. |
 | `wow_model_context({"lane":"social","source":"last_request"})` | Dynamic context recorded at the latest social-model request attempt. |
 | `wow_model_context({"lane":"body","source":"last_violation"})` | The latest retained Moon attempt/intervention, with its original body request context and action outcome. |
+| `wow_model_context({"lane":"social","source":"last_violation"})` | The social lane's latest retained Moon attempt/intervention, bound to that actual social request and action outcome. |
 | `wow_full_context({"lane":"social"})` | Complete recorded HTTP request: personality, instructions, dynamic input, schema, generation settings and any included image data. Authentication headers are never recorded. |
 | `wow_control({"action":"status"})` | Current manual-control generation and hand-back status; this alone does not prove ownership. |
 | `wow_control({"action":"status","control_token":"<exact takeover token>"})` | Check `owned_by_control_token` for the active remote lease. |
@@ -735,7 +755,7 @@ new owner. This recovery command is local operator tooling, not an MCP action.
 The `chat` filter includes party conversation; `directed_chat` requires an actual
 packet recipient, and `directed_emote` requires an explicit incoming target GUID.
 `wow_model_context({})` defaults to body/last_request.
-`last_violation` supports the body lane only; an empty archive means no retained
+`last_violation` uses separate body and social archives; an empty archive means no retained
 incident, not a new model call or a completed behavior test.
 
 **Live preview** omits the running controller's additional notes and conversation

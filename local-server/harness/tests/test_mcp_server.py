@@ -137,6 +137,36 @@ class McpServerTests(unittest.TestCase):
         self.assertNotIn("last_decision", full)
         self.assertNotIn("scene_ledger_text", full)
 
+    def test_full_shared_action_status_preserves_source_outcomes_and_filters_lease_or_input_secrets(self):
+        shared = {'active_intent': {'request_id': 'a' * 32, 'action': {'type': 'follow', 'target_guid': '77'},
+            'provenance': {'lane': 'social', 'provider': 'fixture', 'model': 'api-model',
+                'request_observation_sequence': 10, 'dispatch_observation_sequence': 12}},
+            'last_result': {'execution': {'request_id': 'a' * 32, 'status': 'accepted',
+                'executed': False, 'outcome_uncertain': True}},
+            'needs_reasoning_help': {'groups': [{'action': {'type': 'interact', 'target_guid': '88'},
+                'error_code': 'out_of_range', 'distinct_request_ids': ['b' * 32, 'c' * 32]}]},
+            'control_token': 'DO-NOT-ECHO', 'secret_input': 'DO-NOT-ECHO',
+            'nested': {'authorization': 'DO-NOT-ECHO', 'api_key': 'DO-NOT-ECHO'}}
+        self.write('runtime-game-player-status.json', {'game_backend': 'azerothcore',
+            'controlled_character': 'Vesper', 'native_shared_control': shared})
+        initialize(self.server)
+        response = self.server.handle(request('tools/call', {'name': 'wow_status',
+            'arguments': {'chronicle_limit': 0}}))['result']['structuredContent']
+        actual = response['presence']['full']['native_shared_control']
+        self.assertEqual(actual['active_intent'], shared['active_intent'])
+        self.assertEqual(actual['last_result'], shared['last_result'])
+        self.assertEqual(actual['needs_reasoning_help'], shared['needs_reasoning_help'])
+        self.assertNotIn('DO-NOT-ECHO', json.dumps(response))
+
+    def test_shared_control_is_not_attributed_to_other_characters_backends_or_legacy_social(self):
+        for character, backend in (('Vaelith', 'azerothcore'), ('Vesper', 'window')):
+            self.write('runtime-game-player-status.json', {'controlled_character': character,
+                'game_backend': backend, 'native_shared_control': {'model': 'wrong-source'}})
+            self.assertNotIn('native_shared_control', self.inspector._runtime(False))
+        self.write('runtime-game-player-social-status.json', {'controlled_character': 'Vesper',
+            'game_backend': 'azerothcore', 'native_shared_control': {'model': 'wrong-runtime'}})
+        self.assertNotIn('native_shared_control', self.inspector._runtime(True))
+
     def test_chronicle_excludes_other_characters_and_unattributed_records(self):
         cards = [
             {"id": "vesper-old", "summary": "A Vesper memory", "companion_character": "Vesper"},
