@@ -28,6 +28,9 @@ models selected at those times; behavior still needs playtesting.
   and free of provider text or reasoning.
 - [x] Persistent Moon protection, protected-creature avoidance and attributable guard incident records. Low health does not authorize retaliation; see the command guide for release rules.
 - [x] MCP inspection of full native observations, controller status and recorded model context, with exact complete request paging for newly captured calls.
+- [x] Preserve the recorded `current_party_attention` cue in legacy request inspection through its existing
+  recursive filters and capture limits. Retain source values without inferring a command;
+  full wire capture is unchanged.
 - [x] MCP takeover, normal direct actions, action receipts and explicit hand-back to prior local controller intent; native Moon guard remains active.
 - [x] Install and verify the remote lease correction: the exact secret token authorizes mutations and
   token-bearing status proves `owned_by_control_token`. SDK session churn does not own or revoke the lease;
@@ -48,6 +51,14 @@ models selected at those times; behavior still needs playtesting.
   and attempt count. Reconsider them when relevant fresh facts change; annotate choices without automatic retry bans.
 
 ## 1. Quest acceptance, readiness, turn-in and rewards — mechanics installed; needs playtest
+
+- [x] Keep quiet current NPC acceptance/turn-in phases legible while a resolved Moon binding protects a
+  different creature. This changes short-guide selection only; persistent identity, full Moon instructions,
+  hard execution guard and buff/trade restrictions remain active. Normal NPC/dialog/action checks remain.
+- [x] Pass 2,689 offline checks and select the correct current reward step in paired and real request-format
+  replays without executing game actions. Direct MCP reward of quest 9254 and Qwen's prepatch acceptance of
+  quest 8487 do not establish autonomous turn-in with the new guide.
+- [ ] Playtest autonomous NPC acceptance and reward claiming under Moon without reopening an earlier dialog phase.
 
 - [x] Query an observed offer, accept an eligible quest, recognize explicit quest status/readiness, and open the correct observed NPC's normal turn-in dialog.
 - [x] November 1 direct MCP acceptance of Swift Discipline (9066) at Instructor Antheol:

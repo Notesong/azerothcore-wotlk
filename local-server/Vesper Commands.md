@@ -494,6 +494,19 @@ reopening an earlier phase after advancing. An explicitly empty, complete,
 visible choice list permits index 0 to claim the normal XP/money/fixed rewards;
 missing or hidden choices do not. All actions and real reward choices remain.
 
+The body can retain this short NPC quest-dialog explanation while a resolved
+Moon binding protects a different creature. Only the guide-selection condition
+changes: the persistent binding, full Moon instructions and hard execution guard
+remain active. Current quiet activity, visible friendly questgiver, exact dialog
+phase and ordinary quest actions still determine the available steps. Buff, trade
+and other quiet-scene restrictions retain their existing Moon checks.
+
+The installed update passed 2,689 offline checks. Paired frozen-input and real
+request-format replays selected the current reward step; the replays executed no
+game actions. Quest 9254 was claimed through direct MCP control, and Qwen accepted
+quest 8487 before this patch. Autonomous acceptance and turn-in under the new
+focus still need an in-game playtest.
+
 His view also exposes backpack and bag capacity, separating general-purpose free
 space from specialty bags. The existing `equip_item` action can equip a carried
 bag or request a particular bag slot. The body model receives guidance to notice usable
@@ -710,6 +723,11 @@ request outcome, with stable persona/instructions, credentials, image bytes and
 hidden reasoning omitted. Check its timestamp and session: it may be historical.
 It is not proof that a chosen game action succeeded. A lane has no recorded request
 until its next real model call; inspecting it does not generate one.
+
+Recorded `last_request` views also retain the bounded `current_party_attention`
+cue when present, including its newest recorded human words and source facts.
+Existing credential/image filtering and capture limits still apply. The complete
+wire request remains available separately through `wow_full_context`.
 
 ## Death, ghost navigation, corpse reclaim and Spirit Healers
 
