@@ -103,7 +103,11 @@ snapshot receipt instead. A lost receipt remains an unknown outcome.
 `{"type":"use_item","item_guid":"<owned instance GUID>"}` supports an initial,
 deliberately narrow item family: a carried potion or food/drink with one normal
 on-use spell containing only self healing, mana restoration, or ordinary self
-regeneration effects. It excludes item scripts, spell scripts/linked effects,
+regeneration effects. The stock `spell_gen_arena_drink` script is permitted only
+with its exact two-effect self mana-regen/timing signature, including its zero
+initial regen, generic spell family and zero family flags. Arbitrary spell scripts
+and dummy effects remain excluded.
+It also excludes item scripts and linked effects,
 on-use enchants, other targets, area effects, triggered effects, damage,
 reflection, glyphs and travel/teleport items. Quest tools and arbitrary carried
 items are not supported by this first increment. The caller cannot select a

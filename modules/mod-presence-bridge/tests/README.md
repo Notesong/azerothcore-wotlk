@@ -19,8 +19,9 @@ filter. It also has its own `main`.
 interruptions, overrides and actual stored-count deltas in 61 isolated checks.
 It has its own `main` and does not connect to a running server.
 
-`item-use-policy-tests.cpp` checks item/caster/spell/cast-count identity and
-accepted, emitted, rejected and uncertain receipt states in 44 isolated checks.
+`item-use-policy-tests.cpp` checks item/caster/spell/cast-count identity,
+accepted/emitted/rejected/uncertain receipt states, and the exact reviewed
+arena-drink effect signature in 75 isolated checks.
 It has its own `main` and does not connect to a running server. Missing cast
 diagnostics remain uncertain and never authorize another consumable use.
 

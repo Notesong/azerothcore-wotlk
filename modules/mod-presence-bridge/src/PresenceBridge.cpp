@@ -519,6 +519,16 @@ struct RestorationUse
     std::string unsupported = "unsupported_item_family";
 };
 
+SelfDrinkEffectFacts DrinkEffectFacts(SpellEffectInfo const& effect)
+{
+    return {effect.IsEffect(SPELL_EFFECT_APPLY_AURA), effect.IsAura(SPELL_AURA_MOD_POWER_REGEN),
+        effect.IsAura(SPELL_AURA_PERIODIC_DUMMY),
+        effect.TargetA.GetTarget() == TARGET_UNIT_CASTER && !effect.TargetB.GetTarget(),
+        effect.IsTargetingArea() || effect.IsAreaAuraEffect() || effect.TriggerSpell || effect.ChainTarget
+            || effect.Mechanic || effect.HasRadius() || effect.MiscValueB,
+        effect.BasePoints, effect.DieSides, effect.MiscValue, effect.Amplitude};
+}
+
 RestorationUse SelfRestorationUse(Item const* item)
 {
     RestorationUse result;
@@ -556,7 +566,19 @@ RestorationUse SelfRestorationUse(Item const* item)
         || spell->GetExplicitTargetMask() || spell->IsTargetingArea() || spell->ProcFlags || spell->Mechanic)
         return result;
     auto scripts = sObjectMgr->GetSpellScriptsBounds(spellId);
+    bool reviewedDrink = false;
     if (scripts.first != scripts.second)
+    {
+        auto script = scripts.first;
+        std::string const& name = sObjectMgr->GetScriptName(script->second);
+        uint32 count = uint32(std::distance(scripts.first, scripts.second));
+        bool genericFamily = spell->SpellFamilyName == SPELLFAMILY_GENERIC && !spell->SpellFamilyFlags[0]
+            && !spell->SpellFamilyFlags[1] && !spell->SpellFamilyFlags[2];
+        reviewedDrink = ReviewedSelfDrink(name, count, info->SubClass == ITEM_SUBCLASS_FOOD, genericFamily,
+            DrinkEffectFacts(spell->Effects[EFFECT_0]), DrinkEffectFacts(spell->Effects[EFFECT_1]),
+            spell->Effects[EFFECT_2].IsEffect());
+    }
+    if (scripts.first != scripts.second && !reviewedDrink)
         return result;
     for (int32 link : {int32(spellId), -int32(spellId), int32(spellId + SPELL_LINK_HIT),
         int32(spellId + SPELL_LINK_AURA), -int32(spellId + SPELL_LINK_AURA)})
@@ -568,7 +590,8 @@ RestorationUse SelfRestorationUse(Item const* item)
             continue;
         if (effect.TargetA.GetTarget() != TARGET_UNIT_CASTER || effect.TargetB.GetTarget()
             || effect.IsTargetingArea() || effect.IsAreaAuraEffect() || effect.TriggerSpell
-            || effect.ChainTarget || effect.Mechanic || effect.BasePoints < 0)
+            || effect.ChainTarget || effect.Mechanic
+            || (effect.BasePoints < 0 && !(reviewedDrink && effect.EffectIndex == EFFECT_0)))
             return result;
         if (effect.IsEffect(SPELL_EFFECT_HEAL) || effect.IsEffect(SPELL_EFFECT_HEAL_PCT))
             result.health = true;
@@ -583,7 +606,9 @@ RestorationUse SelfRestorationUse(Item const* item)
             else if ((effect.IsAura(SPELL_AURA_MOD_POWER_REGEN) || effect.IsAura(SPELL_AURA_PERIODIC_ENERGIZE)
                 || effect.IsAura(SPELL_AURA_OBS_MOD_POWER)) && effect.MiscValue == POWER_MANA)
                 result.power = true;
-            else
+            // Only the exact reviewed drink pair permits a timing dummy.
+            else if (!reviewedDrink || effect.EffectIndex != EFFECT_1
+                || !effect.IsAura(SPELL_AURA_PERIODIC_DUMMY))
                 return result;
             result.aura = true;
         }
