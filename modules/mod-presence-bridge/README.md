@@ -98,6 +98,22 @@ the same UUID:** after a restart or cache eviction it could consume another
 item. Inspect the original `action_result` and the identity-bound `item_use`
 snapshot receipt instead. A lost receipt remains an unknown outcome.
 
+### Ordinary group loot votes
+
+`{"type":"loot_roll","roll_id":"<observed round nonce>","choice":"greed"}`
+chooses one of the current roll's advertised `need`, `greed` or `pass` options.
+The opaque 32-hex nonce is distinct from the wire roll-item GUID and an owned
+inventory GUID. `loot_rolls` includes current eligibility, item/base facts,
+affix identifiers, observed timing and explicit coverage. Expired, replaced,
+ineligible or already-voted rounds cannot accept another vote.
+
+The normal loot-roll handler records the choice without clearing movement,
+combat or casting. `loot_roll_receipt` confirms a recorded vote, while
+`loot_roll_result` separately reports an observed winner or all-pass result.
+Neither implies an item was stored. An uncertain submitted vote remains bound
+to its original request; inspect that request instead of submitting a new one.
+Normal timeout behavior and other party members' choices are unchanged.
+
 ### Self-restoration item use
 
 `{"type":"use_item","item_guid":"<owned instance GUID>"}` supports an initial,
@@ -449,7 +465,8 @@ the same epoch is rejected instead of silently suppressing subsequent events.
 Optional `event_types` is an array drawn from `chat`, `text_emote`,
 `combat_started`, `combat_ended`, `damage`, `death`, `resurrected`, `area_changed`,
 `quest_changed`, `inventory_changed`, `party_separation`, `party_rejoined`,
-`arrival`, `action_result`, and `loot_result`. An omitted or empty filter selects
+`arrival`, `action_result`, `loot_result`, `loot_roll_started`, `loot_roll_vote`,
+and `loot_roll_resolved`. An omitted or empty filter selects
 all types. `max_events` is an integer from 1 through 512 (default 128). A filtered
 query advances over nonmatching entries too, so it cannot replay the same
 unmatched tail forever.

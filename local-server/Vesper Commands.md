@@ -597,7 +597,7 @@ facts immediately; a quest dialog is empty until Vesper opens one normally.
 in Presence when ready to test his choices; installation preserves its stopped or paused setting.
 
 Remaining player-loop work includes targeted quest-item/consumable use, talent
-spending, dungeon Need/Greed/Pass choices, hearthstone/flight/bind actions, and
+spending, hearthstone/flight/bind actions, and
 release, corpse reclaim and real resurrection-offer controls. Ordinary game-object
 interaction and known unit-targeted spell casting already exist, but do not cover
 every quest mechanic.
@@ -643,6 +643,42 @@ It applies to the Presence-owned character; other bots keep their own behavior.
 Normal-action QA verified dance state `10` returning to `0` after native `stop`.
 Following after a dance still needs a live check with Aurenne online.
 
+## Group loot: Need, Greed and Pass
+
+The loot-roll update is installed (November 2, 2026). Pending group rolls expose
+`loot_rolls`, including the exact item, stack count, random-affix identifiers,
+currently permitted choices and observed time remaining. Equipped-item and
+base-template comparisons help Vesper judge usefulness; rarity alone is not a Need rule.
+Missing bonuses or timing facts remain unknown.
+
+The body model, an already active Full social call, or direct MCP control can choose:
+
+```json
+{"type":"loot_roll","roll_id":"<observed roll_id>","choice":"greed"}
+```
+
+`choice` is `need`, `greed` or `pass`, and must be present in that roll's
+`allowed_choices`. The opaque `roll_id` belongs to that particular observed round;
+an item name, item ID, slot or a remembered earlier roll cannot replace it.
+Normal group-loot and Need Before Greed eligibility still apply. Disenchant voting
+is not part of this first update.
+
+Voting uses the normal game handler and does not stop movement, casting or combat.
+An expired, replaced, already-voted or otherwise ineligible round is rejected.
+Uncertain replies retain the original request identity rather than casting another vote.
+The normal server timeout remains in effect if no vote is chosen.
+
+A completed vote receipt means **the vote was recorded**, not that Vesper won or
+received the item. Roll resolution and inventory storage are separate facts.
+New rolls receive meaningful body attention; countdown ticks do not create a model call
+every second. The model chooses among the available actions without an automatic Need/Greed policy.
+
+MCP uses the same action inside `wow_act`, after a normal takeover, with a fresh
+operation UUID and the current control token. `wow_wait` with `loot_change` includes
+roll start, vote and resolution events; inspect the fresh returned state before acting.
+Refresh Local Context Gateway in ChatGPT if its cached action list does not yet
+accept `loot_roll`. The normal local controller does not depend on that refresh.
+
 ## MCP context and direct gameplay
 
 Vesper's body view now has shared readable stat labels and advisory gear guidance.
@@ -683,6 +719,7 @@ protection still apply.
 | `wow_control({"action":"status","control_token":"<exact takeover token>"})` | Check `owned_by_control_token` for the active remote lease. |
 | `wow_control({"action":"take_over","operation_id":"<new UUID>"})` | Stop the local controllers and receive the secret control token and generation for Vesper. |
 | `wow_act({"control_token":"<token>","operation_id":"<new UUID>","action":{"type":"follow","target_guid":"<observed GUID>","distance":1}})` | Choose a normal native action, using exact observed identities. |
+| `wow_act({"control_token":"<token>","operation_id":"<new UUID>","action":{"type":"loot_roll","roll_id":"<observed roll_id>","choice":"greed"}})` | Record one currently legal Need/Greed/Pass vote; a recorded vote is not proof of winning the item. |
 | `wow_action_result({"operation_id":"<action UUID>"})` | Check the actual result of an accepted action. |
 | `wow_wait({"since":"<wait cursor>","timeout_sec":20,"event_types":["combat_start","directed_chat","directed_emote"]})` | Wait for relevant changes, then receive a fresh snapshot. No model call. |
 | `wow_control({"action":"hand_back","control_token":"<token>","operation_id":"<new UUID>"})` | End the visit and restore the prior local controller intent. |

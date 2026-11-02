@@ -224,7 +224,13 @@ is not proof that an item exists on this corpse.
   was 0.24 yards away but omitted behind four crates 5–48 yards away. No retained loot attempt targeted
   that corpse; Head progress remained 0/1, and the corpse's actual contents were not established.
 - [ ] Add a bounded new-loot availability wake event for untracked deaths, preserving combat, movement and pending-opening priorities. Current untracked loot can wait for the normal review deadline.
-- [ ] Add observed Need/Greed/Pass rolls and model-chosen responses, including equipment usefulness and group expectations.
+- [x] Add observed Need/Greed/Pass rolls and model-chosen responses, including equipment usefulness and group expectations.
+  The installed action uses an opaque round identity and exact currently legal choices, preserves
+  ongoing movement/combat, and distinguishes a recorded vote from winning or receiving loot.
+  Verified November 2: native build and 462 isolated checks; 2,850 controller tests including 48 roll cases;
+  364 harness tests plus 89 subtests; 96 Gateway checks against source and compiled output.
+  After the clean restart, Vesper was online, Full was running, control was released and saved settings were preserved.
+- [ ] Playtest Need, Greed and Pass on real party loot, including an expired round and normal inventory delivery.
 - [ ] Handle bind-on-pickup/other confirmations, unique limits, quest loot, full bags and partial/error results explicitly; avoid loops or assumptions that every item was received.
 
 ## 10. Combat and party awareness — core mechanics installed; needs playtest

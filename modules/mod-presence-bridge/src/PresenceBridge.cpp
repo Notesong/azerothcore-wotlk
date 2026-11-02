@@ -40,6 +40,7 @@
 #include "Random.h"
 #include "PresenceGuardTelemetry.h"
 #include "PresenceItemUsePolicy.h"
+#include "PresenceLootRollPolicy.h"
 #include "PresenceQuestCommand.h"
 #include "PresenceProtectionPolicy.h"
 #include "PresencePickupPolicy.h"
@@ -69,6 +70,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <initializer_list>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -942,6 +944,54 @@ struct TradeFrame
     bool pendingConsent = false;
 };
 
+struct LootRollFrame
+{
+    std::string id;
+    ObjectGuid group;
+    ObjectGuid item;
+    uint32 map = 0;
+    uint32 slot = 0;
+    uint32 entry = 0;
+    uint32 count = 0;
+    int32 property = 0;
+    uint32 suffix = 0;
+    uint8 mask = 0;
+    bool advertised = false;
+    bool clockKnown = false;
+    bool resolved = false;
+    std::string submittedRequest;
+    std::string submittedChoice;
+    std::chrono::steady_clock::time_point received;
+    std::chrono::steady_clock::time_point deadline;
+};
+
+struct LootRollVoteContext
+{
+    ObjectGuid owner;
+    ObjectGuid item;
+    std::string id;
+    uint32 slot = 0;
+    uint32 entry = 0;
+    int32 property = 0;
+    uint32 suffix = 0;
+    LootRollChoice acknowledged = LootRollChoice::Invalid;
+    bool resolved = false;
+};
+
+thread_local LootRollVoteContext* CurrentLootRollVote = nullptr;
+
+struct LootRollVoteScope
+{
+    explicit LootRollVoteScope(LootRollVoteContext& context) : previous(CurrentLootRollVote)
+    {
+        CurrentLootRollVote = &context;
+    }
+
+    ~LootRollVoteScope() { CurrentLootRollVote = previous; }
+
+    LootRollVoteContext* previous;
+};
+
 struct Actor
 {
     std::unique_ptr<WorldSession> session;
@@ -1328,7 +1378,8 @@ public:
                 return Response(request, true, {{"protocol", 1}, {"operations", Json::array{
                     "observe", "events", "action", "action_result", "capabilities", "attach", "detach"}},
                     {"actions", Json::array{"say", "emote", "move_to", "stop", "follow", "target",
-                        "attack", "cast", "interact", "loot", "query_quest", "accept_quest", "complete_quest",
+                        "attack", "cast", "interact", "loot", "loot_roll", "query_quest", "accept_quest",
+                        "complete_quest",
                         "request_reward", "reward_quest",
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "use_item",
@@ -1337,6 +1388,9 @@ public:
                         "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
+                    {"loot_roll", Json::object{{"required", Json::array{"type", "roll_id", "choice"}},
+                        {"choices", Json::array{"need", "greed", "pass"}},
+                        {"scope", "own_pending_group_roll"}, {"receipt", "vote_recorded_not_item_awarded"}}},
                     {"item_use", Json::object{{"scope", "self_restoration_v1"},
                         {"required", Json::array{"type", "item_guid"}}, {"additional_fields", false},
                         {"async_receipt", true}, {"target_mode", "self"}}},
@@ -1411,7 +1465,8 @@ public:
     {
         static std::set<std::string> const types{"chat", "text_emote", "combat_started", "combat_ended",
             "damage", "death", "resurrected", "area_changed", "quest_changed", "inventory_changed",
-            "party_separation", "party_rejoined", "arrival", "action_result", "loot_result"};
+            "party_separation", "party_rejoined", "arrival", "action_result", "loot_result",
+            "loot_roll_started", "loot_roll_vote", "loot_roll_resolved"};
         return types;
     }
 
@@ -2975,6 +3030,313 @@ public:
         }
     }
 
+    static LootRollFrame NewLootRollFrame(Group* group, Roll const* roll, uint32 map)
+    {
+        LootRollFrame frame;
+        for (uint8 index = 0; index < 4; ++index)
+            frame.id += SpeechHex(urand(0, 0xFFFFFFFF), 8);
+        frame.group = group->GetGUID();
+        frame.item = roll->itemGUID;
+        frame.slot = roll->itemSlot;
+        frame.map = map;
+        frame.entry = roll->itemid;
+        frame.count = roll->itemCount;
+        frame.property = roll->itemRandomPropId;
+        frame.suffix = roll->itemRandomSuffix;
+        frame.received = std::chrono::steady_clock::now();
+        return frame;
+    }
+
+    static WorldObject* LootRollSource(Player* player, Roll const* roll)
+    {
+        auto* loot = roll->getTarget();
+        if (!loot)
+            return nullptr;
+        return loot->sourceGameObject ? loot->sourceGameObject
+            : ObjectAccessor::GetWorldObject(*player, loot->sourceWorldObjectGUID);
+    }
+
+    static std::optional<uint32> LootRollRemaining(Player* player, Roll const* roll, LootRollFrame const& frame)
+    {
+        std::optional<uint32> remaining;
+        if (frame.clockKnown)
+        {
+            auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+                frame.deadline - std::chrono::steady_clock::now()).count();
+            remaining = uint32(std::clamp<int64>(milliseconds, 0, std::numeric_limits<uint32>::max()));
+        }
+        WorldObject* source = LootRollSource(player, roll);
+        if (source)
+        {
+            std::optional<uint32> sourceTime;
+            if (Creature* creature = source->ToCreature())
+                sourceTime = creature->m_groupLootTimer;
+            else if (GameObject* object = source->ToGameObject())
+                sourceTime = object->m_groupLootTimer;
+            if (sourceTime)
+                remaining = remaining ? std::min(*remaining, *sourceTime) : sourceTime;
+        }
+        return remaining;
+    }
+
+    static uint8 LootRollMask(Player* player, Group* group, Roll const* roll, LootRollFrame const& frame)
+    {
+        uint8 mask = roll->rollVoteMask & ROLL_ALL_TYPE_NO_DISENCHANT;
+        if (frame.advertised)
+            mask &= frame.mask;
+        if (group->GetLootMethod() == NEED_BEFORE_GREED)
+        {
+            ItemTemplate const* item = sObjectMgr->GetItemTemplate(roll->itemid);
+            WorldObject* source = LootRollSource(player, roll);
+            bool canNeed = item && LootRollNeedEligible(true, group->isLFGGroup(true), source != nullptr,
+                source && player->CanRollForItemInLFG(item, source) == EQUIP_ERR_OK,
+                frame.advertised, (frame.mask & ROLL_FLAG_TYPE_NEED) != 0);
+            if (!canNeed)
+                mask &= ~ROLL_FLAG_TYPE_NEED;
+        }
+        if (player->HasPlayerFlag(PLAYER_FLAGS_NO_PLAY_TIME))
+            mask &= ROLL_FLAG_TYPE_PASS;
+        return mask;
+    }
+
+    Json::array LootRollSnapshot(Player* player, uint32& total)
+    {
+        Json::array result;
+        Group* group = player->GetGroup();
+        std::set<ObjectGuid> active;
+        if (!group)
+            return result;
+        auto rolls = group->GetRolls();
+        for (Roll const* roll : rolls)
+            if (roll)
+                active.insert(roll->itemGUID);
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto& frames = _lootRollFrames[player->GetSession()];
+            auto now = std::chrono::steady_clock::now();
+            for (auto it = frames.begin(); it != frames.end();)
+                if (!active.contains(it->first) && (it->second.resolved
+                    || (it->second.clockKnown && now >= it->second.deadline)
+                    || now - it->second.received > std::chrono::minutes(5)))
+                    it = frames.erase(it);
+                else
+                    ++it;
+        }
+        for (Roll const* roll : rolls)
+        {
+            if (!roll || !roll->getTarget())
+                continue;
+            auto vote = roll->playerVote.find(player->GetGUID());
+            if (vote == roll->playerVote.end() || vote->second == NOT_VALID)
+                continue;
+            ++total;
+            if (result.size() >= 16)
+                continue;
+            LootRollFrame frame;
+            {
+                std::lock_guard<std::mutex> lock(_eventMutex);
+                auto& frames = _lootRollFrames[player->GetSession()];
+                auto found = frames.find(roll->itemGUID);
+                if (found == frames.end())
+                {
+                    if (frames.size() >= 64)
+                        continue;
+                    found = frames.emplace(roll->itemGUID, NewLootRollFrame(group, roll, player->GetMapId())).first;
+                }
+                frame = found->second;
+            }
+            if (frame.resolved || !LootRollIdentityMatches(frame.id, frame.id, frame.group.GetRawValue(),
+                group->GetGUID().GetRawValue(), frame.item.GetRawValue(), roll->itemGUID.GetRawValue(),
+                frame.slot, roll->itemSlot, frame.entry, roll->itemid)
+                || frame.property != roll->itemRandomPropId || frame.suffix != roll->itemRandomSuffix
+                || frame.count != roll->itemCount)
+                continue;
+            auto remaining = LootRollRemaining(player, roll, frame);
+            bool pending = vote->second == NOT_EMITED_YET && frame.submittedRequest.empty()
+                && (!remaining || *remaining > 0);
+            uint8 mask = LootRollMask(player, group, roll, frame);
+            Json::array choices;
+            for (auto const& [choice, flag] : std::initializer_list<std::pair<char const*, uint8>>{
+                {"need", ROLL_FLAG_TYPE_NEED}, {"greed", ROLL_FLAG_TYPE_GREED}, {"pass", ROLL_FLAG_TYPE_PASS}})
+                if (pending && (mask & flag))
+                    choices.emplace_back(choice);
+            char const* selected = vote->second == NEED ? "need" : vote->second == GREED ? "greed"
+                : vote->second == PASS ? "pass" : vote->second == DISENCHANT ? "disenchant" : nullptr;
+            ItemTemplate const* item = sObjectMgr->GetItemTemplate(roll->itemid);
+            Json::object row{{"roll_id", frame.id}, {"item_guid", std::to_string(frame.item.GetRawValue())},
+                {"group_guid", std::to_string(frame.group.GetRawValue())}, {"map_id", frame.map},
+                {"item_slot", frame.slot}, {"item_id", frame.entry}, {"item_name", item ? item->Name1 : ""},
+                {"count", frame.count}, {"random_property_id", frame.property}, {"random_suffix_id", frame.suffix},
+                {"state", pending ? "pending" : selected ? "voted"
+                    : !frame.submittedRequest.empty() ? "vote_unconfirmed" : "expired"},
+                {"submitted_request_id", frame.submittedRequest.empty()
+                    ? Json::value(nullptr) : Json::value(frame.submittedRequest)},
+                {"submitted_choice", frame.submittedChoice.empty()
+                    ? Json::value(nullptr) : Json::value(frame.submittedChoice)},
+                {"vote", selected ? Json::value(selected) : Json::value(nullptr)},
+                {"remaining_ms", remaining ? Json::value(*remaining) : Json::value(nullptr)},
+                {"deadline_known", remaining.has_value()}, {"allowed_choices", std::move(choices)},
+                {"loot_method", uint32(group->GetLootMethod())},
+                {"votes", Json::object{{"need", roll->totalNeed}, {"greed", roll->totalGreed},
+                    {"pass", roll->totalPass}, {"eligible", roll->totalPlayersRolling}}}};
+            if (item)
+            {
+                Json::object facts = ItemFacts(player, item);
+                facts["random_property_id"] = frame.property;
+                facts["random_suffix_id"] = frame.suffix;
+                facts["random_stats_included"] = frame.property == 0;
+                if (frame.property > 0)
+                {
+                    if (ItemRandomPropertiesEntry const* property
+                        = sItemRandomPropertiesStore.LookupEntry(frame.property))
+                        facts["random_property_name"] = property->Name[0] ? property->Name[0] : "";
+                }
+                else if (frame.property < 0)
+                    if (ItemRandomSuffixEntry const* suffix
+                        = sItemRandomSuffixStore.LookupEntry(uint32(-int64(frame.property))))
+                        facts["random_property_name"] = suffix->Name[0] ? suffix->Name[0] : "";
+                row["item"] = std::move(facts);
+            }
+            result.emplace_back(std::move(row));
+        }
+        return result;
+    }
+
+    Json::object CaptureLootRollPacket(WorldSession* session, WorldPacket const& packet)
+    {
+        Player* player = session->GetPlayer();
+        Group* group = player ? player->GetGroup() : nullptr;
+        if (!group)
+            return {};
+        try
+        {
+            WorldPacket copy(packet);
+            ObjectGuid item;
+            uint32 slot, entry, suffix;
+            int32 property;
+            if (packet.GetOpcode() == SMSG_LOOT_START_ROLL)
+            {
+                if (copy.size() < 37)
+                    return {};
+                uint32 map, count, countdown;
+                uint8 mask;
+                copy >> item >> map >> slot >> entry >> suffix >> property >> count >> countdown >> mask;
+                std::lock_guard<std::mutex> lock(_eventMutex);
+                auto& frames = _lootRollFrames[session];
+                auto found = frames.find(item);
+                if (found == frames.end())
+                {
+                    if (frames.size() >= 64)
+                        return {};
+                    LootRollFrame frame;
+                    for (uint8 index = 0; index < 4; ++index)
+                        frame.id += SpeechHex(urand(0, 0xFFFFFFFF), 8);
+                    frame.group = group->GetGUID();
+                    frame.item = item;
+                    frame.slot = slot;
+                    frame.map = map;
+                    frame.entry = entry;
+                    frame.count = count;
+                    frame.property = property;
+                    frame.suffix = suffix;
+                    frame.received = std::chrono::steady_clock::now();
+                    found = frames.emplace(item, std::move(frame)).first;
+                }
+                auto& frame = found->second;
+                if (frame.group != group->GetGUID() || frame.slot != slot || frame.entry != entry
+                    || frame.property != property || frame.suffix != suffix || frame.count != count || frame.resolved)
+                    return {};
+                auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(countdown);
+                frame.deadline = frame.clockKnown ? std::min(frame.deadline, deadline) : deadline;
+                frame.clockKnown = true;
+                frame.advertised = true;
+                frame.mask = mask;
+                return {{"type", "loot_roll_started"}, {"roll_id", frame.id}, {"item_id", entry},
+                    {"count", count}, {"remaining_ms", countdown}, {"item_guid", std::to_string(item.GetRawValue())}};
+            }
+            if (packet.GetOpcode() == SMSG_LOOT_ROLL)
+            {
+                if (copy.size() < 35)
+                    return {};
+                ObjectGuid voter;
+                uint8 number, choice, automatic;
+                copy >> item >> slot >> voter >> entry >> suffix >> property >> number >> choice >> automatic;
+                LootRollChoice vote = LootRollAcknowledgement(number, choice);
+                if (vote == LootRollChoice::Invalid)
+                    return {}; // A generated dice number is not a player's vote acknowledgement.
+                Json::object event{{"type", "loot_roll_vote"}, {"item_id", entry},
+                    {"item_slot", slot}, {"voter_guid", std::to_string(voter.GetRawValue())},
+                    {"choice", vote == LootRollChoice::Need ? "need"
+                        : vote == LootRollChoice::Greed ? "greed" : "pass"},
+                    {"automatic", automatic != 0}, {"roll_id", nullptr}};
+                if (item)
+                {
+                    std::lock_guard<std::mutex> lock(_eventMutex);
+                    auto frames = _lootRollFrames.find(session);
+                    if (frames != _lootRollFrames.end())
+                        if (auto found = frames->second.find(item); found != frames->second.end()
+                            && found->second.group == group->GetGUID() && found->second.slot == slot
+                            && found->second.entry == entry && found->second.property == property
+                            && found->second.suffix == suffix)
+                            event["roll_id"] = found->second.id;
+                }
+                if (CurrentLootRollVote && CurrentLootRollVote->owner == player->GetGUID()
+                    && voter == player->GetGUID() && CurrentLootRollVote->slot == slot
+                    && CurrentLootRollVote->entry == entry && CurrentLootRollVote->property == property
+                    && CurrentLootRollVote->suffix == suffix
+                    && (!item || item == CurrentLootRollVote->item))
+                {
+                    CurrentLootRollVote->acknowledged = vote;
+                    event["roll_id"] = CurrentLootRollVote->id;
+                }
+                return event;
+            }
+            bool won = packet.GetOpcode() == SMSG_LOOT_ROLL_WON;
+            if (copy.size() < (won ? 34u : 24u))
+                return {};
+            uint32 firstAffix, secondAffix;
+            copy >> item >> slot >> entry >> firstAffix >> secondAffix;
+            LootRollAffixes affixes = DecodeLootRollResultAffixes(won, firstAffix, secondAffix);
+            property = affixes.property;
+            suffix = affixes.suffix;
+            ObjectGuid winner;
+            uint8 number = 0, choice = 0;
+            if (won)
+                copy >> winner >> number >> choice;
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _lootRollFrames[session].find(item);
+            if (found == _lootRollFrames[session].end())
+                return {};
+            LootRollFrame& frame = found->second;
+            if (frame.group != group->GetGUID() || frame.slot != slot || frame.entry != entry
+                || frame.property != property || frame.suffix != suffix)
+                return {};
+            frame.resolved = true;
+            if (CurrentLootRollVote && CurrentLootRollVote->owner == player->GetGUID()
+                && CurrentLootRollVote->id == frame.id)
+                CurrentLootRollVote->resolved = true;
+            Json::object result{{"roll_id", frame.id}, {"item_guid", std::to_string(item.GetRawValue())},
+                {"item_id", entry}, {"item_slot", slot}, {"count", frame.count}, {"roll_resolved", true},
+                {"outcome", won ? "winner_selected" : "all_passed"},
+                {"winner_guid", won ? Json::value(std::to_string(winner.GetRawValue())) : Json::value(nullptr)},
+                {"won_by_self", won && winner == player->GetGUID()}, {"item_received", nullptr},
+                {"timestamp", Timestamp()}};
+            if (won)
+            {
+                result["winning_roll"] = number;
+                result["winning_choice"] = choice == ROLL_NEED ? "need" : choice == ROLL_GREED ? "greed"
+                    : choice == ROLL_DISENCHANT ? "disenchant" : "unknown";
+            }
+            _lootRollResults[session] = result;
+            result["type"] = "loot_roll_resolved";
+            return result;
+        }
+        catch (std::exception const&)
+        {
+            return {}; // A malformed diagnostic cannot alter ordinary loot resolution.
+        }
+    }
+
     void Packet(WorldSession* session, WorldPacket const& packet)
     {
         AnnounceSpeechPacket(session, packet);
@@ -3012,6 +3374,12 @@ public:
         Json::object event;
         switch (packet.GetOpcode())
         {
+            case SMSG_LOOT_START_ROLL:
+            case SMSG_LOOT_ROLL:
+            case SMSG_LOOT_ROLL_WON:
+            case SMSG_LOOT_ALL_PASSED:
+                event = CaptureLootRollPacket(session, packet);
+                break;
             case SMSG_TRADE_STATUS:
                 CaptureTradeStatus(session, packet);
                 return;
@@ -3179,6 +3547,14 @@ public:
                 }
                 JournalAppendLocked(player, type, std::move(payload), sender);
             }
+        }
+        else if (type == "loot_roll_started" || type == "loot_roll_vote" || type == "loot_roll_resolved")
+        {
+            Json::object payload = event;
+            payload.erase("type");
+            payload.erase("timestamp");
+            payload.erase("id");
+            JournalAppendLocked(player, type, std::move(payload));
         }
         auto& queue = _events[player->GetGUID()];
         queue.push_back(std::move(event));
@@ -4137,6 +4513,9 @@ private:
             _emoteCorrelations.ForgetCharacter(owned->second.GetRawValue());
         _ownedCharacters.erase(session);
         _lootWindows.erase(session);
+        _lootRollFrames.erase(session);
+        _lootRollReceipts.erase(session);
+        _lootRollResults.erase(session);
         _openingLoot.erase(session);
         _itemUses.erase(session);
         _itemUseReceipts.erase(session);
@@ -5016,12 +5395,23 @@ private:
         result["recovery"] = RecoverySnapshot(player);
         result["trade"] = TradeSnapshot(player);
         result["item_use"] = ItemUseSnapshot(player);
+        uint32 rollTotal = 0;
+        Json::array rolls = LootRollSnapshot(player, rollTotal);
+        result["loot_rolls_coverage"] = Json::object{{"total", rollTotal}, {"included", rolls.size()},
+            {"omitted", rollTotal - uint32(rolls.size())}, {"limit", 16}};
+        result["loot_rolls"] = std::move(rolls);
         bool itemUsePending = result.at("item_use").as_object().at("pending").is_object();
         {
             std::lock_guard<std::mutex> lock(_eventMutex);
             auto trade = _tradeFrames.find(player->GetSession());
             result["trade_receipt"] = trade != _tradeFrames.end() && !trade->second.receipt.empty()
                 ? Json::value(trade->second.receipt) : Json::value(nullptr);
+            auto vote = _lootRollReceipts.find(player->GetSession());
+            result["loot_roll_receipt"] = vote != _lootRollReceipts.end()
+                ? Json::value(vote->second) : Json::value(nullptr);
+            auto rollResult = _lootRollResults.find(player->GetSession());
+            result["loot_roll_result"] = rollResult != _lootRollResults.end()
+                ? Json::value(rollResult->second) : Json::value(nullptr);
         }
         result["pending_loot"] = nullptr;
         if (auto found = _actors.find(name); found != _actors.end() && !found->second->lootId.empty())
@@ -5336,7 +5726,7 @@ private:
             {"equipment", 23}, {"vendor_page", 24}, {"trainer_page", 24}, {"trainer_cached_rows", 1024},
             {"quest_menu", 64}, {"quest_choice_rewards", QUEST_REWARD_CHOICES_COUNT},
             {"quest_fixed_rewards", QUEST_REWARDS_COUNT}, {"quest_dialog_text", 4096},
-            {"party_members", MAXRAIDSIZE}, {"guard_interventions", 64}};
+            {"party_members", MAXRAIDSIZE}, {"guard_interventions", 64}, {"loot_rolls", 16}};
         return Response(request, true, std::move(result));
     }
 
@@ -6095,6 +6485,93 @@ private:
         return Response(request, true, std::move(result));
     }
 
+    Json::object LootRollAction(Json::object const& request, Json::object const& action, Actor& actor, Player* player)
+    {
+        std::string id = Text(action, "roll_id");
+        std::string choiceText = Text(action, "choice");
+        LootRollChoice choice = ParseLootRollChoice(choiceText);
+        if (action.size() != 3 || id.size() != 32 || id.find_first_not_of("0123456789abcdef") != std::string::npos)
+            return Error(request, "invalid_loot_roll", "Use exactly type, the observed roll_id, and choice");
+        LootRollFrame frame;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto frames = _lootRollFrames.find(actor.session.get());
+            if (frames != _lootRollFrames.end())
+                for (auto const& [guid, found] : frames->second)
+                    if (found.id == id)
+                    {
+                        frame = found;
+                        break;
+                    }
+        }
+        Group* group = player->GetGroup();
+        Roll const* current = nullptr;
+        if (group)
+            for (Roll const* roll : group->GetRolls())
+                if (roll && roll->itemGUID == frame.item)
+                {
+                    current = roll;
+                    break;
+                }
+        bool identity = current && !frame.resolved && current->getTarget()
+            && LootRollIdentityMatches(id, frame.id, frame.group.GetRawValue(), group->GetGUID().GetRawValue(),
+                frame.item.GetRawValue(), current->itemGUID.GetRawValue(), frame.slot, current->itemSlot,
+                frame.entry, current->itemid) && frame.count == current->itemCount
+            && frame.property == current->itemRandomPropId && frame.suffix == current->itemRandomSuffix;
+        bool member = false, pending = false;
+        std::optional<uint32> remaining;
+        uint8 mask = 0;
+        if (identity)
+        {
+            auto vote = current->playerVote.find(player->GetGUID());
+            member = vote != current->playerVote.end() && vote->second != NOT_VALID;
+            pending = member && vote->second == NOT_EMITED_YET;
+            remaining = LootRollRemaining(player, current, frame);
+            mask = LootRollMask(player, group, current, frame);
+        }
+        if (char const* error = LootRollVoteError(choice, identity, member, pending, remaining && !*remaining,
+            mask, (mask & ROLL_FLAG_TYPE_NEED) != 0))
+            return Error(request, error, "Choose an available option on your current, unvoted group roll");
+        if (!frame.submittedRequest.empty())
+            return Error(request, "roll_vote_unconfirmed",
+                "Read the original vote request; do not submit another vote");
+        LootRollVoteContext context{player->GetGUID(), frame.item, frame.id, frame.slot, frame.entry,
+            frame.property, frame.suffix};
+        LootRollVoteScope scope(context);
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto& submitted = _lootRollFrames[actor.session.get()].at(frame.item);
+            submitted.submittedRequest = Text(request, "id");
+            submitted.submittedChoice = choiceText;
+        }
+        WorldPacket packet(CMSG_LOOT_ROLL, 13);
+        packet << frame.item << frame.slot << uint8(choice);
+        actor.session->HandleLootRoll(packet);
+        // The normal handler can synchronously resolve and delete the Roll.
+        // Never dereference current after dispatch, including for the last voter.
+        bool recorded = context.acknowledged == choice;
+        if (!recorded && !context.resolved)
+            if (Group* afterGroup = player->GetGroup(); afterGroup && afterGroup->GetGUID() == frame.group)
+                for (Roll const* after : afterGroup->GetRolls())
+                    if (after && after->itemGUID == frame.item)
+                    {
+                        auto vote = after->playerVote.find(player->GetGUID());
+                        recorded = vote != after->playerVote.end() && uint8(vote->second) == uint8(choice);
+                        break;
+                    }
+        Json::object receipt{{"request_id", Text(request, "id")}, {"action_type", "loot_roll"},
+            {"roll_id", frame.id}, {"choice", choiceText}, {"item_id", frame.entry},
+            {"status", recorded ? "completed" : "unknown"}, {"pending", false}, {"dispatched", true},
+            {"fenced", !recorded}, {"vote_recorded", recorded ? Json::value(true) : Json::value(nullptr)},
+            {"roll_resolved", context.resolved}, {"item_received", nullptr},
+            {"outcome", recorded ? "vote_recorded" : "vote_unconfirmed"}, {"timestamp", Timestamp()}};
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            _lootRollReceipts[actor.session.get()] = receipt;
+        }
+        return Response(request, true, std::move(receipt));
+    }
+
     Json::object Action(Json::object const& request, std::string const& name)
     {
         GuardActionContext context;
@@ -6146,6 +6623,8 @@ private:
         auto const& action = actionValue->as_object();
         std::string type = Text(action, "type");
         std::string id = Text(request, "id");
+        if (type == "loot_roll")
+            return LootRollAction(request, action, actor, player);
         if (type == "stop" || type == "move_to" || type == "target"
             || (action.if_contains("target_guid")
                 && GuidNumber(action, "target_guid") != player->GetTarget().GetRawValue()))
@@ -7042,6 +7521,9 @@ private:
     std::map<WorldSession*, ObjectGuid> _ownedCharacters;
     TextEmoteCorrelations _emoteCorrelations;
     std::map<WorldSession*, LootWindow> _lootWindows;
+    std::map<WorldSession*, std::map<ObjectGuid, LootRollFrame>> _lootRollFrames;
+    std::map<WorldSession*, Json::object> _lootRollReceipts;
+    std::map<WorldSession*, Json::object> _lootRollResults;
     std::map<WorldSession*, OpeningLoot> _openingLoot;
     std::map<WorldSession*, PendingItemUse> _itemUses;
     std::map<WorldSession*, Json::object> _itemUseReceipts;

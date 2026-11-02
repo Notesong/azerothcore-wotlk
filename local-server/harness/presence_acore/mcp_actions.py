@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 
@@ -31,6 +32,8 @@ for _name in ('attack', 'interact', 'loot', 'spirit_healer_activate', 'reclaim_c
     _spec(_name, {'target_guid': _GUID})
 _spec('cast', {'target_guid': _GUID, 'spell_id': _POSITIVE})
 _spec('use_item', {'item_guid': _GUID})
+_spec('loot_roll', {'roll_id': {'type': 'string', 'pattern': '^[a-f0-9]{32}$'},
+    'choice': {'enum': ['need', 'greed', 'pass']}})
 for _name in ALIASES:
     _required = {'target_guid': _GUID, 'quest_id': _POSITIVE}
     if _name == 'quest_reward':
@@ -70,6 +73,8 @@ def _valid(value: Any, field: str, spec: dict[str, Any]) -> bool:
     if 'enum' in spec:
         return value in spec['enum'] and isinstance(value, str)
     kind = spec.get('type')
+    if field == 'roll_id':
+        return isinstance(value, str) and re.fullmatch(r'[a-f0-9]{32}', value) is not None
     if field.endswith('_guid') or field == 'trade_id':
         if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
             return False

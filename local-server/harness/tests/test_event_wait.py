@@ -57,5 +57,18 @@ class WaitTests(unittest.TestCase):
         self.assertFalse(_matches({"type": "text_emote", "payload": {"direction": "outgoing", "directed_at_self": True}}, ["directed_emote"]))
         self.assertTrue(_matches({"type": "text_emote", "payload": {"direction": "incoming", "directed_at_self": True}}, ["directed_emote"]))
 
+    def test_loot_change_includes_each_roll_phase_without_enabling_other_filters(self):
+        for kind in ("loot_roll_started", "loot_roll_vote", "loot_roll_resolved"):
+            with self.subTest(kind=kind):
+                event = {"type": kind, "payload": {"roll_id": "a"*32}}
+                self.assertTrue(_matches(event, ["loot_change"]))
+                self.assertFalse(_matches(event, ["quest_change"]))
+                value = wait_events(FakeClient([result(4, [event])]),
+                                    lambda: {"sequence": 7, "loot_rolls": []},
+                                    since=EPOCH+":3", event_types=["loot_change"])
+                self.assertEqual(value["wake_reason"], "event")
+                self.assertEqual(value["events"], [event])
+                self.assertEqual(value["snapshot"], {"sequence": 7, "loot_rolls": []})
+
 
 if __name__ == "__main__": unittest.main()
