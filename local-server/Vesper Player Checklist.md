@@ -348,6 +348,32 @@ is not proof that an item exists on this corpse.
 ## 16. Lost or separated recovery — local following exists; broader recovery incomplete
 
 - [x] Separation/distance changes can attract attention; reacquire a visible friendly unit and follow using normal movement.
+- [x] Add bounded pickup surroundings from current raw observations before display caps: distinguish hostile,
+  other attackable and unknown-relation living creatures; expose source/advertised-approach proximity and levels.
+  Coverage marks omissions and missing geometry. The 15-yard sample radius establishes neither aggro range nor
+  a safe path; the model retains every gameplay choice and Moon protection remains unchanged.
+- [x] Highlight current lead visibility/motion and pickup detour distances; preserve unknown lead coordinates.
+  Explain that a fixed `move_to` to snapshot coordinates replaces tracking, while `wait` preserves ordinary motion.
+  An accepted follow is past execution evidence, not a standing human order or proof of current server movement.
+- [x] Keep the newest recorded human words salient with authorship/time/source facts. Older conversation and
+  model proposals remain historical, without automatic keyword commands or inferred instructions.
+- [x] Ground one model-written party separation alert in prior observed follow contact plus three seconds/newer
+  state, or repeated measured follow failures bound to the exact lead and distinct request identities. Startup
+  roster entries alone do not establish lost contact. Cached polls preserve state without authorizing speech.
+  The brief alert can accompany movement/combat, yields to pending human replies, and suppresses repeats only
+  after confirmed delivery. Failed sends remain eligible; uncertain delivery resolves its original request.
+- [x] For an offered current separation episode, require its exact status tag and a factual opening from a small
+  set, with the remainder written by the model. This is an output contract, not evidence of learned situational
+  judgment. Gameplay choices and other contexts retain their existing action schemas.
+- [x] Install the exact nine-file controller update without a world restart, preserve settings and restore Full
+  running/unpaused with MCP control released. Fresh verification found Vesper alive. The full offline suite
+  passed 2,633 checks before the final factual-opening/parse guard; 13 targeted checks passed after those changes.
+- [x] Keep validated native separation alerts from waiting on the routine speech cooldown, while retaining
+  execution policy, human-reply priority and confirmed-once episode tracking. The installed two-file
+  priority follow-up passed 125 focused offline checks; ordinary speech cooldowns remain unchanged.
+- [ ] Verify a real lost-contact party alert, its source chip, deferred/failed delivery and reunion suppression.
+- [ ] Playtest dangerous pickups while following, including the mob-filled Weapon Container area; verify grounded
+  choices instead of replaying old destinations or narratives. Offline fixtures do not establish live reliability.
 - [ ] Build the full recovery ladder: reacquire → choose a grounded route → use appropriate transport/hearth if available → report the actual blocker when stuck.
 - [ ] Preserve the intended reunion/goal across visibility loss and map changes without repeated failed actions or invented locations.
 

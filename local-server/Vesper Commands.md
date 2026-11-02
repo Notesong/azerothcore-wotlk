@@ -49,6 +49,42 @@ The new report/link and shared Social history still need an in-game playtest.
 See the learned-abilities section in [Vesper Voice.md](Vesper%20Voice.md) for the
 exact identity rules and limits.
 
+## Party contact and following
+
+An accepted `follow` tracks the current player. Choosing `move_to` at that
+player's snapshot coordinates replaces tracking with a fixed destination.
+`wait` preserves ordinary movement already in progress. Fresh positions and
+movement facts establish what is happening; an older accepted request alone
+does not establish current following.
+
+After observed contact while following, sustained loss of an online party lead
+can request one brief, model-written party alert. The normal threshold is three
+seconds with newer observed state; repeated verified follow failures can also
+attract attention. This incident's output requires a factual opening from a small
+set, such as "I've lost sight of you" or "I'm separated from you"; the model writes
+the continuation. The source chip remains metadata. This alert can accompany
+movement or combat and yields
+to a pending human reply. Confirmed delivery suppresses repetition until reunion
+or a new observed episode. Failed delivery remains eligible; an uncertain send
+is resolved through its original request rather than blindly repeated.
+
+A validated separation alert uses its confirmed-once episode fence to bypass
+the routine chat cooldown. Execution policy and human-reply priority still
+apply; ordinary speech keeps its existing cooldown.
+
+Normal cached bridge polls preserve contact/report state while waiting for fresh
+evidence. Startup roster entries alone do not establish that contact was lost.
+The newest recorded human message is highlighted with authorship and age/source
+facts; earlier conversation and model notes remain history. These facts support
+the model's choices without turning natural language into automatic commands.
+
+This verifies the incident-report output contract, rather than learned situational
+judgment. The new party-alert behavior and recovery choices still need an in-game playtest.
+
+The nine-file controller update is installed without a world restart. Settings
+were preserved and Full resumed. The full offline suite passed 2,633 checks before
+the final factual-opening/parse guard; 13 targeted checks passed after those changes.
+
 ## Quest-object pickup
 
 The native body view now lists current corpse/chest loot candidates with their
@@ -56,6 +92,20 @@ exact GUID and matching `loot` action. Candidate corpses retain full alive/loota
 facts. This helps the model choose an available pickup; it does not promise a
 quest drop or execute loot automatically. Pending openings are excluded from
 repeat candidates. Normal bag, ownership, range and opening rules still apply.
+
+Each displayed pickup now includes bounded current surroundings: living hostile,
+other attackable and unknown-relation creatures, their levels and straight-line
+distances from the source and its advertised approach. These facts are derived
+from fresh raw observations before the body display's unit cap. Coverage identifies
+omitted or unlocated units. The 15-yard count radius describes proximity; aggro
+range, path safety and unseen threats remain unknown.
+
+Source coordinates are labeled as the source's location. The advertised
+`next_step.action` supplies an approach choice when available. Current lead
+visibility/motion and distance comparisons expose whether that detour moves
+farther from a visible lead; missing lead coordinates stay unknown. The model
+still chooses whether and when to pick up the item. Actions and Moon protection
+retain their existing rules. Dangerous-box avoidance remains a live playtest.
 
 Vesper can choose `loot` for an eligible quest book or ordinary chest. A chosen
 pickup stops movement for its normal opening cast, then collects permitted loot
