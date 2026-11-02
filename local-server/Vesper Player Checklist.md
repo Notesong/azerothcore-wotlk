@@ -310,7 +310,7 @@ is not proof that an item exists on this corpse.
 - [ ] Expose environmental hazard effects and scripted-behavior uncertainty. Bonfire 183444 uses `go_heat`, which
   is absent from current object facts; sampled health loss does not identify fire versus individual attackers.
 
-## 14. Death and resurrection — ghost navigation and Spirit Healer recovery verified; broader loop incomplete
+## 14. Death and resurrection — normal recovery mechanics verified; broader loop incomplete
 
 - [x] Install the native fix exposing `self.is_ghost` and numeric `self.death_state`, with ordinary
   `move_to` and `stop` for an already released ghost. Keep normal pathfinding, map/range/immobility checks
@@ -327,10 +327,17 @@ is not proof that an item exists on this corpse.
   Explicit hand-back restored Full running with Social stopped.
 - [x] Preserve actual recovery receipts, distinguish them from current consent, expire confirmations after 30 seconds,
   clear them on scene/life changes, and resolve uncertain activation through its original request without repeating it.
-- [ ] Expose actionable corpse/reclaim and resurrection-offer state.
-- [ ] Add intentional release, corpse reclaim, acceptance of a real resurrection and appropriate recovery choices.
+- [x] Expose current own-corpse GUID, map/instance, position, normal range/delay and grounded reclaim eligibility.
+  Unresolved identity, range or delay stays unknown and cannot advertise a reclaim action.
+- [x] Choose `reclaim_corpse(target_guid)` against the exact currently observed own corpse, using the normal handler.
+  Released-ghost, same-map/instance, elapsed-delay, 39-yard range and arena rules apply. The choice is not automatic,
+  and adds no GM shortcut or Spirit Healer resurrection sickness/durability penalty.
+- [x] Verify a chosen live normal reclaim at about 31.684 yards: alive false → true, ghost true → false,
+  health 1 → 101 of 202 and no remaining resurrectable corpse. The receipt verifies this mechanical action.
+- [ ] Add intentional release and exposed acceptance of a real resurrection offer, with appropriate recovery choices.
 - [ ] Demonstrate autonomous recovery choice, rejoin the party and restore the chosen goal; report when recovery is
-  blocked. No automatic resurrection or GM shortcut is provided; the direct Spirit Healer test is a mechanical check.
+  blocked. No automatic resurrection or GM shortcut is provided; the direct Spirit Healer and corpse tests are
+  mechanical checks rather than proof of autonomous recovery judgment.
 
 ## 15. Groups, readiness and dungeons — invitations partial; broader loop not built
 

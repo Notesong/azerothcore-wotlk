@@ -661,7 +661,7 @@ hidden reasoning omitted. Check its timestamp and session: it may be historical.
 It is not proof that a chosen game action succeeded. A lane has no recorded request
 until its next real model call; inspecting it does not generate one.
 
-## Death, ghost navigation and Spirit Healers
+## Death, ghost navigation, corpse reclaim and Spirit Healers
 
 The native ghost-navigation fix is installed and verified through actual movement.
 It permits normal `move_to` and `stop` after Vesper has released as a ghost,
@@ -670,7 +670,26 @@ range, pathfinding and immobility checks remain. Pending movement fails on a
 living/ghost transition or unreleased death before arrival is reported.
 
 Ghost following, combat, casting and looting remain blocked. An already released
-ghost can now use an observed Spirit Healer through the normal dialog:
+ghost can now choose normal own-corpse reclaim. `recovery.corpse` exposes the
+corpse's identity, map/instance, position, range and remaining reclaim delay.
+When `can_reclaim` is true, choose its exact advertised
+`next_action`: `reclaim_corpse(target_guid)`.
+
+The server rechecks that this is Vesper's current own corpse, he is a released
+ghost outside an arena, the normal delay has elapsed, and the corpse is in the
+same map/instance within the normal 39-yard reclaim radius. It invokes the normal
+corpse-reclaim handler; it provides no GM resurrection or automatic recovery.
+The model still chooses whether and when to reclaim. Ordinary corpse reclaim
+adds no Spirit Healer resurrection sickness or durability penalty.
+
+The November 1 live check completed a chosen normal reclaim at about 31.684 yards.
+Its receipt showed `alive: false → true`, `is_ghost: true → false`, health
+1 → 101 of 202, and no remaining resurrectable corpse. This verifies the action,
+not autonomous recovery judgment. Check the original `recovery_receipt` after a
+chosen attempt; resolve a lost reply by its original identity instead of
+submitting a second reclaim.
+
+An observed Spirit Healer remains a separate normal recovery option:
 
 1. Reach the visible healer, choose `interact`, then select the exact advertised
    `gossip_select` recovery option. This opens the server's confirmation; it does
@@ -700,8 +719,8 @@ option 0 and the normal confirmation. The activation receipt confirmed
 regenerated to 158. Explicit hand-back restored Full running with Social stopped.
 This verifies chosen Spirit Healer recovery, not autonomous recovery decisions.
 
-Release, corpse reclaim and acceptance of a real resurrection offer remain
-unimplemented. The full death/recovery/rejoin loop is still incomplete. Continue
+Release and acceptance of a real resurrection offer remain unimplemented.
+The full death/recovery/rejoin loop is still incomplete. Continue
 to verify each move and recovery through fresh state and its original receipt;
 Moon protection remains active.
 

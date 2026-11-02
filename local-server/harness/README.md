@@ -61,8 +61,13 @@ inspection, equipment changes and advertised noncoded NPC gossip choices. Normal
 prices, stock, money, inventory space and class/level requirements apply. The
 planner chooses these actions; the bridge does not auto-sell, auto-train or grant
 gear or gold. Long commerce menus are paged and item-detail limitations are marked.
-Item use, taxi travel and corpse recovery still need additional support; this is
-not yet an unattended all-content player.
+Normal own-corpse reclaim and Spirit Healer recovery are supported as chosen
+actions. Reclaim uses the currently observed own corpse, released-ghost state,
+same-map/instance, normal delay and 39-yard range checks; it adds no Spirit Healer
+sickness/durability penalty or GM shortcut. A chosen live reclaim was verified;
+autonomous recovery/rejoining, release and real resurrection offers remain
+incomplete. Item use and taxi travel also need additional support; this is not
+yet an unattended all-content player.
 
 Nearby speech, whispers and party chat use the packets actually delivered to
 Vesper, including GM-tagged speech. Party membership is not required for nearby

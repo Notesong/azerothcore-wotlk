@@ -27,7 +27,7 @@ _spec('move_to', {key: {'type': 'number'} for key in ('x', 'y', 'z')}, {'map_id'
 _spec('stop')
 _spec('follow', {'target_guid': _GUID}, {'distance': {'type': 'number', 'minimum': 1, 'maximum': 20}})
 _spec('target', {'target_guid': {'type': 'string', 'pattern': '^(0|[1-9][0-9]{0,19})$'}})
-for _name in ('attack', 'interact', 'loot', 'spirit_healer_activate'):
+for _name in ('attack', 'interact', 'loot', 'spirit_healer_activate', 'reclaim_corpse'):
     _spec(_name, {'target_guid': _GUID})
 _spec('cast', {'target_guid': _GUID, 'spell_id': _POSITIVE})
 for _name in ALIASES:
