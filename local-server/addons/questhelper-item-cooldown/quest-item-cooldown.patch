@@ -1,0 +1,25 @@
+--- a/tracker.lua
++++ b/tracker.lua
+@@ -1,5 +1,22 @@
+ QuestHelper_File["tracker.lua"] = "1.4.1"
+ QuestHelper_Loadtime["tracker.lua"] = GetTime()
++
++-- QuestHelper 1.4.1: a removed quest item can briefly retain its watch button.
++-- Guard the quest-item entry point: Blizzard also compares duration after the timer call.
++if type(WatchFrameItem_UpdateCooldown) == "function" and not QuestHelper._questItemCooldownGuardInstalled then
++  local originalQuestItemCooldown = WatchFrameItem_UpdateCooldown
++  WatchFrameItem_UpdateCooldown = function(self, ...)
++    local start, duration, enable = GetQuestLogSpecialItemCooldown(self:GetID())
++    if type(start) ~= "number" or type(duration) ~= "number" or type(enable) ~= "number" then
++      local cooldown = _G[self:GetName() .. "Cooldown"]
++      if cooldown then cooldown:Hide() end
++      SetItemButtonTextureVertexColor(self, 1, 1, 1)
++      return
++    end
++    return originalQuestItemCooldown(self, ...)
++  end
++  QuestHelper._questItemCooldownGuardInstalled = true
++end
+ 
+ local debug_output = false
+ if QuestHelper_File["tracker.lua"] == "Development Version" then debug_output = true end
