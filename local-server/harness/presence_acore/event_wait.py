@@ -12,10 +12,11 @@ FILTERS = {
     "chat": {"chat"}, "directed_chat": {"chat"}, "directed_emote": {"text_emote"},
     "combat": {"combat_started", "combat_ended"}, "combat_start": {"combat_started"},
     "combat_stop": {"combat_ended"}, "damage": {"damage"}, "death": {"death", "resurrected"},
-    "party_separation": {"party_separation", "party_rejoined"}, "arrival": {"arrival"},
+    "party_separation": {"party_separation", "party_rejoined"}, "arrival": {"arrival", "taxi_arrived"},
     "action_result": {"action_result"},
     "loot_change": {"inventory_changed", "loot_result", "loot_roll_started", "loot_roll_vote", "loot_roll_resolved"},
     "quest_change": {"quest_changed"}, "area_change": {"area_changed"},
+    "travel_change": {"taxi_node_learned", "taxi_menu_opened", "taxi_started", "taxi_arrived", "taxi_interrupted"},
     "trade_change": {"trade_request", "trade_open", "trade_offer_changed", "trade_partner_accepted",
                      "trade_acceptance_reset", "trade_complete", "trade_cancelled", "trade_error", "trade_closed"},
 }

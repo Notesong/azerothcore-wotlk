@@ -27,6 +27,7 @@
 #include "MapMgr.h"
 #include "MotionMaster.h"
 #include "MoveSplineInit.h"
+#include "MoveSpline.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "NPCPackets.h"
@@ -44,6 +45,7 @@
 #include "PresenceQuestCommand.h"
 #include "PresenceProtectionPolicy.h"
 #include "PresencePickupPolicy.h"
+#include "PresenceTaxiPolicy.h"
 #include "QuestDef.h"
 #include "QuestPackets.h"
 #include "ScriptMgr.h"
@@ -57,6 +59,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
+#include "WaypointMovementGenerator.h"
 #define BOOST_JSON_NO_LIB
 #define BOOST_CONTAINER_NO_LIB
 #include <boost/json/src.hpp>
@@ -233,6 +236,7 @@ Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
     bool repair = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_REPAIR);
     bool questgiver = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
     bool spiritHealer = unit->IsCreature() && unit->IsSpiritHealer();
+    bool flightmaster = unit->IsCreature() && unit->HasNpcFlag(UNIT_NPC_FLAG_FLIGHTMASTER);
     if (vendor)
         services.emplace_back("vendor");
     if (trainer)
@@ -243,6 +247,8 @@ Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
         services.emplace_back("questgiver");
     if (spiritHealer)
         services.emplace_back("spirit_healer");
+    if (flightmaster)
+        services.emplace_back("flightmaster");
     Json::array casts;
     for (uint32 slot = CURRENT_GENERIC_SPELL; slot < CURRENT_MAX_SPELL; ++slot)
         if (Spell* spell = unit->GetCurrentSpell(slot); spell && spell->getState() != SPELL_STATE_FINISHED)
@@ -264,7 +270,7 @@ Json::object UnitState(Unit const* unit, uint32 auraLimit = 24)
         {"emote_state", unit->GetUInt32Value(UNIT_NPC_EMOTESTATE)}, {"stand_state", unit->getStandState()},
         {"is_player", unit->IsPlayer()}, {"npc_flags", uint32(unit->GetNpcFlags())},
         {"services", std::move(services)}, {"is_vendor", vendor}, {"is_trainer", trainer}, {"can_repair", repair},
-        {"is_questgiver", questgiver}, {"is_spirit_healer", spiritHealer},
+        {"is_questgiver", questgiver}, {"is_spirit_healer", spiritHealer}, {"is_flightmaster", flightmaster},
         {"moving", unit->isMoving()}, {"selected_target_guid", std::to_string(unit->GetTarget().GetRawValue())},
         {"attack_victim_guid", unit->GetVictim() ? std::to_string(unit->GetVictim()->GetGUID().GetRawValue()) : "0"},
         {"channel_spell_id", unit->GetUInt32Value(UNIT_CHANNEL_SPELL)},
@@ -992,6 +998,50 @@ struct LootRollVoteScope
     LootRollVoteContext* previous;
 };
 
+struct TaxiMenu
+{
+    std::string id;
+    ObjectGuid source;
+    uint32 node = 0;
+    uint32 map = 0;
+    uint32 instance = 0;
+    float discount = 1;
+    std::set<uint32> known;
+    std::map<uint32, TaxiRoute> routes;
+    std::chrono::steady_clock::time_point expires;
+};
+
+struct TaxiOperation
+{
+    std::string character;
+    Json::object action;
+    Json::object receipt;
+    bool observedFlight = false;
+};
+
+struct TaxiPacketContext
+{
+    WorldSession* session = nullptr;
+    bool learned = false;
+    uint32 menuNode = 0;
+    ObjectGuid menuSource;
+    std::optional<uint32> reply;
+};
+
+thread_local TaxiPacketContext* CurrentTaxiPacket = nullptr;
+
+struct TaxiPacketScope
+{
+    explicit TaxiPacketScope(TaxiPacketContext& context) : previous(CurrentTaxiPacket)
+    {
+        CurrentTaxiPacket = &context;
+    }
+
+    ~TaxiPacketScope() { CurrentTaxiPacket = previous; }
+
+    TaxiPacketContext* previous;
+};
+
 struct Actor
 {
     std::unique_ptr<WorldSession> session;
@@ -1027,6 +1077,9 @@ struct Actor
     std::map<ObjectGuid, Json::object> journalPartyUnits;
     std::chrono::steady_clock::time_point lootDeadline;
     std::chrono::steady_clock::time_point nextInteractionGesture;
+    TaxiMenu taxiMenu;
+    std::string taxiFlightRequest;
+    uint32 taxiAcknowledgedSpline = 0;
 };
 
 struct OpeningLoot
@@ -1339,6 +1392,13 @@ public:
                 "PresenceBridge.ProtectionFile", "presence-bridge-protection.jsonl");
             LoadProtection();
         }
+        if (!_taxiLoaded)
+        {
+            _taxiLoaded = true;
+            _taxiFile = sConfigMgr->GetOption<std::string>(
+                "PresenceBridge.TaxiReceiptFile", "presence-bridge-taxi.jsonl");
+            LoadTaxiOperations();
+        }
     }
 
     Json::object Response(Json::object const& request, bool ok, Json::object result = {})
@@ -1384,13 +1444,17 @@ public:
                         "party_accept", "party_decline", "vendor_list", "vendor_buy", "vendor_sell", "vendor_repair",
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "use_item",
                         "gossip_select",
-                        "spirit_healer_activate", "reclaim_corpse",
+                        "spirit_healer_activate", "reclaim_corpse", "taxi_list", "taxi_start",
                         "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
                     {"loot_roll", Json::object{{"required", Json::array{"type", "roll_id", "choice"}},
                         {"choices", Json::array{"need", "greed", "pass"}},
                         {"scope", "own_pending_group_roll"}, {"receipt", "vote_recorded_not_item_awarded"}}},
+                    {"taxi", Json::object{{"list_required", Json::array{"type", "target_guid"}},
+                        {"start_required", Json::array{"type", "target_guid", "taxi_menu_id", "destination_node_id"}},
+                        {"scope", "ordinary_known_faction_network"}, {"paid_start_receipt", "original_request_uuid"},
+                        {"arrival", "observed_native_flight_completion"}, {"menu_lifetime_sec", 60}}},
                     {"item_use", Json::object{{"scope", "self_restoration_v1"},
                         {"required", Json::array{"type", "item_guid"}}, {"additional_fields", false},
                         {"async_receipt", true}, {"target_mode", "self"}}},
@@ -1400,7 +1464,18 @@ public:
                 std::string original = Text(request, "request_id");
                 auto found = _requests.find(original);
                 if (found == _requests.end())
+                {
+                    auto paid = _taxiOperations.find(original);
+                    if (paid != _taxiOperations.end())
+                    {
+                        Json::object envelope{{"v", 1}, {"id", original}, {"op", "action"},
+                            {"character", paid->second.character}};
+                        bool ok = Text(paid->second.receipt, "status") != "failed";
+                        return Response(request, true, {{"request_id", original},
+                            {"response", Response(envelope, ok, paid->second.receipt)}});
+                    }
                     return Error(request, "unknown_request", "Request is not in the bounded result cache");
+                }
                 return Response(request, true, {{"request_id", original}, {"response", found->second.response}});
             }
             if (!normalizePlayerName(name))
@@ -1419,6 +1494,15 @@ public:
                     return Error(request, "id_conflict", "A request id cannot be reused for a different request");
                 return duplicate->second.response;
             }
+            if (op == "action")
+                if (auto paid = _taxiOperations.find(id); paid != _taxiOperations.end())
+                {
+                    auto proposed = request.if_contains("action");
+                    if (paid->second.character != name || !proposed || !proposed->is_object()
+                        || proposed->as_object() != paid->second.action)
+                        return Error(request, "id_conflict", "Original paid-flight UUID has another action identity");
+                    return Response(request, Text(paid->second.receipt, "status") != "failed", paid->second.receipt);
+                }
             Json::object response;
             if (op == "create" || op == "attach")
                 response = Connect(request, name, op == "create");
@@ -1466,7 +1550,8 @@ public:
         static std::set<std::string> const types{"chat", "text_emote", "combat_started", "combat_ended",
             "damage", "death", "resurrected", "area_changed", "quest_changed", "inventory_changed",
             "party_separation", "party_rejoined", "arrival", "action_result", "loot_result",
-            "loot_roll_started", "loot_roll_vote", "loot_roll_resolved"};
+            "loot_roll_started", "loot_roll_vote", "loot_roll_resolved", "taxi_node_learned",
+            "taxi_menu_opened", "taxi_started", "taxi_arrived", "taxi_interrupted"};
         return types;
     }
 
@@ -1754,6 +1839,438 @@ public:
         actor.journalDetailsReady = true;
     }
 
+    void LoadTaxiOperations()
+    {
+        if (_taxiFile.empty())
+        {
+            _taxiJournalHealthy = false;
+            return;
+        }
+        std::ifstream input(_taxiFile);
+        if (!input)
+        {
+            std::error_code error;
+            bool exists = std::filesystem::exists(_taxiFile, error);
+            _taxiJournalHealthy = !error && !exists;
+            return;
+        }
+        try
+        {
+            std::string line;
+            while (std::getline(input, line))
+            {
+                if (line.empty())
+                    continue;
+                Json::object record = Json::parse(line).as_object();
+                std::string id = Text(record, "request_id");
+                TaxiOperation operation;
+                operation.character = Text(record, "character");
+                operation.action = record.at("action").as_object();
+                operation.receipt = record.at("receipt").as_object();
+                operation.observedFlight = record.at("observed_flight").as_bool();
+                if (id.empty() || id.size() > 128 || operation.character.empty()
+                    || Text(operation.receipt, "request_id") != id
+                    || Text(operation.receipt, "operation") != "taxi_start"
+                    || !operation.receipt.at("pending").is_bool()
+                    || !operation.receipt.at("terminal").is_bool()
+                    || !operation.receipt.at("arrived").is_bool()
+                    || Text(operation.receipt, "phase").empty()
+                    || Text(operation.receipt, "status").empty()
+                    || Text(operation.receipt, "target_guid").empty()
+                    || !ValidJournalEpoch(Text(operation.receipt, "taxi_menu_id"))
+                    || !Unsigned(operation.receipt, "destination_node_id", 0, TaxiMaskSize * 32)
+                    || !Unsigned(operation.receipt, "source_node_id", 0, TaxiMaskSize * 32)
+                    || !operation.receipt.at("route_node_ids").is_array()
+                    || Text(operation.action, "type") != "taxi_start"
+                    || Text(operation.action, "target_guid") != Text(operation.receipt, "target_guid")
+                    || Text(operation.action, "taxi_menu_id") != Text(operation.receipt, "taxi_menu_id")
+                    || Unsigned(operation.action, "destination_node_id")
+                        != Unsigned(operation.receipt, "destination_node_id")
+                    || operation.receipt.at("terminal").as_bool() == operation.receipt.at("pending").as_bool())
+                    throw std::runtime_error("Invalid persisted taxi identity");
+                _taxiOperations[id] = std::move(operation);
+            }
+            if (!input.eof())
+                _taxiJournalHealthy = false;
+        }
+        catch (std::exception const&)
+        {
+            // A partial/corrupt paid-operation fence must never authorize another charge.
+            _taxiJournalHealthy = false;
+        }
+    }
+
+    bool PersistTaxiOperation(std::string const& id, TaxiOperation const& operation)
+    {
+        if (!_taxiJournalHealthy)
+            return false;
+        try
+        {
+            std::ofstream output(_taxiFile, std::ios::app | std::ios::binary);
+            output << Json::serialize(Json::object{{"request_id", id}, {"character", operation.character},
+                {"action", operation.action}, {"receipt", operation.receipt},
+                {"observed_flight", operation.observedFlight}}) << '\n';
+            output.flush();
+            if (!output)
+            {
+                _taxiJournalHealthy = false;
+                return false;
+            }
+            return true;
+        }
+        catch (std::exception const&)
+        {
+            _taxiJournalHealthy = false;
+            return false;
+        }
+    }
+
+    std::string PendingTaxiRequest(std::string const& character) const
+    {
+        for (auto const& [id, operation] : _taxiOperations)
+            if (operation.character == character && operation.receipt.at("pending").as_bool())
+                return id;
+        return "";
+    }
+
+    bool TaxiNodeAllowed(Player* player, uint32 id) const
+    {
+        if (!id || id > TaxiMaskSize * 32)
+            return false;
+        TaxiNodesEntry const* node = sTaxiNodesStore.LookupEntry(id);
+        uint32 field = (id - 1) / 32;
+        uint32 bit = uint32(1) << ((id - 1) % 32);
+        return node && (sTaxiNodesMask[field] & bit) != 0
+            && (node->MountCreatureID[player->GetTeamId(true) == TEAM_ALLIANCE ? 1 : 0]
+                || (node->MountCreatureID[0] == 32981
+                    && player->IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_TAXI)))
+            && player->m_taxi.IsTaximaskNodeKnown(id);
+    }
+
+    std::set<uint32> KnownTaxiNodes(Player* player) const
+    {
+        std::set<uint32> result;
+        for (uint32 id = 1; id < sTaxiNodesStore.GetNumRows() && id <= TaxiMaskSize * 32; ++id)
+            if (TaxiNodeAllowed(player, id))
+                result.insert(id);
+        return result;
+    }
+
+    std::map<uint32, TaxiRoute> TaxiRoutes(Player* player, Creature* npc, uint32 source,
+        std::set<uint32> const& known)
+    {
+        std::vector<TaxiEdge> edges;
+        for (auto const& [from, destinations] : sTaxiPathSetBySource)
+            if (known.contains(from))
+                for (auto const& [to, path] : destinations)
+                    if (known.contains(to) && path && path->ID < sTaxiPathNodesByPath.size()
+                        && !sTaxiPathNodesByPath[path->ID].empty())
+                        edges.push_back({from, to, path->price});
+        return KnownTaxiRoutes(source, known, edges, player->GetReputationPriceDiscount(npc));
+    }
+
+    Creature* TaxiNpc(Player* player, ObjectGuid guid)
+    {
+        Creature* npc = player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_FLIGHTMASTER);
+        return npc && !player->IsHostileTo(npc) && player->CanSeeOrDetect(npc)
+            && player->IsWithinLOSInMap(npc) ? npc : nullptr;
+    }
+
+    bool TaxiMenuCurrent(Actor const& actor, Player* player, Creature* npc) const
+    {
+        TaxiMenu const& menu = actor.taxiMenu;
+        return npc && !menu.id.empty() && menu.source == npc->GetGUID() && menu.map == player->GetMapId()
+            && menu.instance == player->GetInstanceId() && menu.expires > std::chrono::steady_clock::now()
+            && menu.node == sObjectMgr->GetNearestTaxiNode(*npc, player->GetTeamId(true))
+            && menu.discount == player->GetReputationPriceDiscount(npc) && menu.known == KnownTaxiNodes(player)
+            && !player->isTaxiCheater() && !player->IsInFlight();
+    }
+
+    Json::array TaxiRouteNodes(TaxiRoute const& route) const
+    {
+        Json::array result;
+        for (uint32 node : route.nodes)
+            result.emplace_back(node);
+        return result;
+    }
+
+    Json::object TaxiSnapshot(Player* player)
+    {
+        bool inFlight = player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT);
+        Json::object result{{"in_flight", inFlight}, {"phase", inFlight ? "in_flight" : "idle"},
+            {"menu", nullptr}, {"flight", nullptr}, {"last_result", nullptr},
+            {"journal_healthy", _taxiJournalHealthy}};
+        auto actorEntry = _actors.find(player->GetName());
+        if (actorEntry == _actors.end() || actorEntry->second->session->GetPlayer() != player)
+            return result;
+        Actor& actor = *actorEntry->second;
+        TaxiMenu const& menu = actor.taxiMenu;
+        if (!menu.id.empty())
+        {
+            Creature* npc = TaxiNpc(player, menu.source);
+            bool valid = TaxiMenuCurrent(actor, player, npc);
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                menu.expires - std::chrono::steady_clock::now()).count();
+            Json::array destinations;
+            for (auto const& [id, route] : menu.routes)
+                if (TaxiNodesEntry const* node = sTaxiNodesStore.LookupEntry(id))
+                    destinations.emplace_back(Json::object{{"destination_node_id", id}, {"name", node->name[0]},
+                        {"map_id", node->map_id}, {"route_node_ids", TaxiRouteNodes(route)},
+                        {"price_copper", route.price}, {"affordable", player->GetMoney() >= route.price},
+                        {"available", valid}, {"known", true}, {"faction_eligible", true}});
+            TaxiNodesEntry const* source = sTaxiNodesStore.LookupEntry(menu.node);
+            result["menu"] = Json::object{{"taxi_menu_id", menu.id},
+                {"target_guid", std::to_string(menu.source.GetRawValue())}, {"source_node_id", menu.node},
+                {"source_name", source ? source->name[0] : ""}, {"valid", valid}, {"current", valid},
+                {"remaining_ms", std::max<int64>(remaining, 0)}, {"destinations", std::move(destinations)}};
+            if (!inFlight && valid)
+                result["phase"] = "menu_open";
+        }
+        std::string pending = PendingTaxiRequest(player->GetName());
+        auto operation = _taxiOperations.find(pending.empty() ? actor.taxiFlightRequest : pending);
+        if (operation != _taxiOperations.end())
+        {
+            Json::object flight = operation->second.receipt;
+            flight["current_source_node_id"] = player->m_taxi.GetTaxiSource();
+            flight["current_destination_node_id"] = player->m_taxi.GetTaxiDestination();
+            flight["map_id"] = player->GetMapId();
+            flight["path_node_index"] = nullptr;
+            flight["path_node_count"] = nullptr;
+            if (auto movement = dynamic_cast<FlightPathMovementGenerator*>(player->GetMotionMaster()->top()))
+            {
+                flight["path_node_index"] = movement->GetCurrentNode();
+                flight["path_node_count"] = movement->GetPath().size();
+            }
+            result["last_result"] = operation->second.receipt;
+            if (inFlight || operation->second.receipt.at("pending").as_bool())
+            {
+                result["flight"] = std::move(flight);
+                result["phase"] = Text(operation->second.receipt, "phase");
+            }
+        }
+        return result;
+    }
+
+    void ProcessTaxi(Actor& actor, Player* player)
+    {
+        if (actor.taxiFlightRequest.empty())
+            actor.taxiFlightRequest = PendingTaxiRequest(player->GetName());
+        bool flying = player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT);
+        auto flight = dynamic_cast<FlightPathMovementGenerator*>(player->GetMotionMaster()->top());
+        if (player->movespline && TaxiSplineAckReady(flying, player->IsBeingTeleported(),
+            player->movespline->Finalized(), flight != nullptr, player->movespline->GetId(),
+            actor.taxiAcknowledgedSpline))
+        {
+            // The regular client sends SPLINE_DONE only after this server spline ends.
+            // The normal handler performs the cross-map taxi transfer and its path bookkeeping.
+            uint32 end = flight->GetPathAtMapEnd();
+            TaxiNodesEntry const* next = sTaxiNodesStore.LookupEntry(player->m_taxi.GetTaxiDestination());
+            if (next && next->map_id != player->GetMapId() && end < flight->GetPath().size()
+                && flight->GetCurrentNode() < flight->GetPath().size()
+                && flight->GetPath()[end]->mapid == next->map_id)
+            {
+                actor.taxiAcknowledgedSpline = player->movespline->GetId();
+                MovementInfo movement = player->m_movementInfo;
+                movement.guid = player->GetGUID();
+                movement.pos.Relocate(player->GetPosition());
+                WorldPacket packet(CMSG_MOVE_SPLINE_DONE, 64);
+                actor.session->WriteMovementInfo(&packet, &movement);
+                packet << player->movespline->GetId();
+                actor.session->HandleMoveSplineDoneOpcode(packet);
+            }
+        }
+        auto found = _taxiOperations.find(actor.taxiFlightRequest);
+        if (found == _taxiOperations.end() || !found->second.receipt.at("pending").as_bool())
+            return;
+        TaxiOperation& operation = found->second;
+        if (flying)
+        {
+            if (!operation.observedFlight)
+            {
+                operation.observedFlight = true;
+                operation.receipt["phase"] = "in_flight";
+                PersistTaxiOperation(found->first, operation);
+            }
+            return;
+        }
+        if (player->IsBeingTeleported() || !operation.observedFlight)
+            return;
+        uint32 destination = Unsigned(operation.receipt, "destination_node_id");
+        TaxiNodesEntry const* node = sTaxiNodesStore.LookupEntry(destination);
+        bool arrived = TaxiLandedAtDestination(operation.observedFlight, flying, player->IsBeingTeleported(),
+            player->IsAlive(), player->m_taxi.empty(), flight != nullptr,
+            node && player->GetMapId() == node->map_id,
+            node ? player->GetDistance(node->x, node->y, node->z) : 100000.0f);
+        operation.receipt["status"] = arrived ? "completed" : "failed";
+        operation.receipt["phase"] = arrived ? "arrived" : "interrupted";
+        operation.receipt["pending"] = false;
+        operation.receipt["terminal"] = true;
+        operation.receipt["arrived"] = arrived;
+        operation.receipt["position"] = PositionOf(player);
+        operation.receipt["reason"] = arrived ? "normal_native_flight_landed" : "flight_ended_without_destination";
+        bool persisted = PersistTaxiOperation(found->first, operation);
+        operation.receipt["receipt_persisted"] = persisted;
+        Finish(found->first, arrived, operation.receipt);
+        JournalAppend(player, arrived ? "taxi_arrived" : "taxi_interrupted", operation.receipt);
+    }
+
+    Json::object TaxiAction(Json::object const& request, Json::object const& action, Actor& actor, Player* player)
+    {
+        std::string type = Text(action, "type");
+        std::string id = Text(request, "id");
+        for (auto const& field : action)
+            if (field.key() != "type" && field.key() != "target_guid"
+                && !(type == "taxi_start" && (field.key() == "taxi_menu_id" || field.key() == "destination_node_id")))
+                return Error(request, "invalid_taxi_action", "Taxi actions accept only their advertised exact fields");
+        if (!action.if_contains("target_guid") || !GuidNumber(action, "target_guid"))
+            return Error(request, "invalid_flightmaster", "target_guid must identify the advertised flightmaster");
+        if (type == "taxi_start" && (!ValidJournalEpoch(Text(action, "taxi_menu_id"))
+            || !Unsigned(action, "destination_node_id", 0, TaxiMaskSize * 32)))
+            return Error(request, "invalid_taxi_action",
+                "Use the advertised taxi nonce and a positive destination node");
+        if (!player->IsAlive())
+            return Error(request, "dead", "Ordinary flightmasters do not transport dead characters");
+        if (type == "taxi_start")
+        {
+            auto previous = _taxiOperations.find(id);
+            if (previous != _taxiOperations.end())
+            {
+                if (previous->second.character != player->GetName() || previous->second.action != action)
+                    return Error(request, "id_conflict", "Original paid-flight UUID is bound to another action");
+                return Response(request, Text(previous->second.receipt, "status") != "failed",
+                    previous->second.receipt);
+            }
+        }
+        if (player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT))
+            return Error(request, "in_flight", "Observe the existing native flight; do not start or reopen it");
+        if (!_taxiJournalHealthy)
+            return Error(request, "taxi_journal_unavailable", "Paid-flight uncertainty journal requires repair");
+        if (!PendingTaxiRequest(player->GetName()).empty())
+            return Error(request, "taxi_outcome_unknown", "Monitor the original paid-flight UUID; do not retry");
+        if (player->isTaxiCheater())
+            return Error(request, "taxi_cheat_enabled",
+                "Ordinary paid-flight discovery requires the real known-node mask");
+        Creature* npc = TaxiNpc(player, ObjectGuid(GuidNumber(action, "target_guid")));
+        if (!npc)
+            return Error(request, "invalid_flightmaster",
+                "Use a visible friendly flightmaster in normal interaction range");
+        uint32 source = sObjectMgr->GetNearestTaxiNode(*npc, player->GetTeamId(true));
+        if (!source || source > TaxiMaskSize * 32)
+            return Error(request, "taxi_node_unavailable", "The flightmaster has no ordinary faction taxi node");
+        if (type == "taxi_list")
+        {
+            ObjectGuid sourceGuid = npc->GetGUID();
+            TaxiPacketContext context;
+            context.session = actor.session.get();
+            TaxiPacketScope scope(context);
+            actor.taxiMenu = {};
+            WorldPacket packet(CMSG_TAXIQUERYAVAILABLENODES, 8);
+            packet << sourceGuid;
+            actor.session->HandleTaxiQueryAvailableNodes(packet);
+            if (context.learned)
+            {
+                Json::object result{{"status", "completed"}, {"phase", "node_learned"},
+                    {"request_id", id}, {"target_guid", std::to_string(sourceGuid.GetRawValue())},
+                    {"source_node_id", source}, {"next_action", "taxi_list"}, {"menu_open", false}};
+                JournalAppend(player, "taxi_node_learned", result);
+                return Response(request, true, std::move(result));
+            }
+            npc = TaxiNpc(player, sourceGuid);
+            if (!npc || context.menuNode != source || context.menuSource != sourceGuid)
+                return Error(request, "taxi_menu_not_open", "The normal flightmaster query did not open a menu");
+            TaxiMenu& menu = actor.taxiMenu;
+            for (uint8 index = 0; index < 4; ++index)
+                menu.id += SpeechHex(urand(0, 0xFFFFFFFF), 8);
+            menu.source = npc->GetGUID();
+            menu.node = source;
+            menu.map = player->GetMapId();
+            menu.instance = player->GetInstanceId();
+            menu.discount = player->GetReputationPriceDiscount(npc);
+            menu.known = KnownTaxiNodes(player);
+            menu.routes = TaxiRoutes(player, npc, source, menu.known);
+            menu.expires = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            Json::object result{{"status", "completed"}, {"phase", "menu_open"}, {"request_id", id},
+                {"menu_open", true}, {"taxi", TaxiSnapshot(player)}};
+            JournalAppend(player, "taxi_menu_opened", {{"request_id", id}, {"taxi_menu_id", menu.id},
+                {"target_guid", std::to_string(menu.source.GetRawValue())}, {"source_node_id", source}});
+            return Response(request, true, std::move(result));
+        }
+        if (sWorld->getIntConfig(CONFIG_INSTANT_TAXI) != 0)
+            return Error(request, "instant_taxi_disabled",
+                "The bridge requires normal flight, not instant-taxi configuration");
+        TaxiMenu const& menu = actor.taxiMenu;
+        if (Text(action, "taxi_menu_id") != menu.id || !TaxiMenuCurrent(actor, player, npc))
+            return Error(request, "stale_taxi_menu", "Open a fresh normal flightmaster menu before selecting a route");
+        uint32 destination = Unsigned(action, "destination_node_id", 0, TaxiMaskSize * 32);
+        auto route = menu.routes.find(destination);
+        auto currentRoutes = TaxiRoutes(player, npc, source, menu.known);
+        auto current = currentRoutes.find(destination);
+        if (route == menu.routes.end() || current == currentRoutes.end() || route->second != current->second)
+            return Error(request, "stale_taxi_route",
+                "Select an unchanged known reachable destination from the current menu");
+        if (player->GetMoney() < route->second.price)
+            return Error(request, "not_enough_money",
+                "The normal route's complete copper fare is no longer affordable");
+        if (player->IsInCombat() || player->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_ROOT)
+            || player->IsMounted() || player->IsNonMeleeSpellCast(false) || player->GetSession()->IsLoggingOut())
+            return Error(request, "taxi_player_busy", "The character cannot begin a normal paid flight now");
+        if (_taxiOperations.size() >= 4096)
+            return Error(request, "taxi_journal_full",
+                "Paid-operation history requires archival before another flight");
+        TaxiOperation operation;
+        operation.character = player->GetName();
+        operation.action = action;
+        operation.receipt = {{"operation", "taxi_start"}, {"request_id", id},
+            {"target_guid", std::to_string(npc->GetGUID().GetRawValue())}, {"taxi_menu_id", menu.id},
+            {"source_node_id", source}, {"destination_node_id", destination},
+            {"route_node_ids", TaxiRouteNodes(route->second)}, {"price_copper", route->second.price},
+            {"status", "accepted"}, {"phase", "outcome_unknown"}, {"pending", true},
+            {"terminal", false}, {"arrived", false}, {"persistent", true}};
+        if (!PersistTaxiOperation(id, operation))
+            return Error(request, "taxi_journal_unavailable",
+                "No charge attempted because the paid-flight fence could not be saved");
+        _taxiOperations[id] = operation;
+        actor.taxiFlightRequest = id;
+        if (!actor.motionId.empty())
+        {
+            Finish(actor.motionId, false, {{"status", "failed"}, {"reason", "superseded_by_taxi"}});
+            actor.motionId.clear();
+        }
+        ClearCosmeticEmote(actor, player);
+        CancelOpeningLoot(actor, "superseded_by_taxi");
+        uint32 money = player->GetMoney();
+        TaxiPacketContext context;
+        context.session = actor.session.get();
+        TaxiPacketScope scope(context);
+        WorldPacket packet(CMSG_ACTIVATETAXIEXPRESS, 12 + route->second.nodes.size() * 4);
+        packet << npc->GetGUID() << uint32(route->second.nodes.size());
+        for (uint32 node : route->second.nodes)
+            packet << node;
+        actor.session->HandleActivateTaxiExpressOpcode(packet);
+        TaxiOperation& saved = _taxiOperations.at(id);
+        saved.receipt["activation_reply"] = context.reply ? Json::value(*context.reply) : Json::value(nullptr);
+        saved.receipt["initial_charge_copper"] = money >= player->GetMoney() ? money - player->GetMoney() : 0;
+        bool flying = player->IsInFlight() && player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT)
+            && player->GetMotionMaster()->GetCurrentMovementGeneratorType() == FLIGHT_MOTION_TYPE;
+        saved.observedFlight = flying;
+        if (flying)
+        {
+            saved.receipt["phase"] = "in_flight";
+            actor.taxiMenu = {};
+            JournalAppend(player, "taxi_started", saved.receipt);
+        }
+        else if (context.reply && *context.reply != ERR_TAXIOK && player->GetMoney() == money)
+        {
+            saved.receipt["status"] = "failed";
+            saved.receipt["phase"] = "rejected";
+            saved.receipt["pending"] = false;
+            saved.receipt["terminal"] = true;
+            saved.receipt["reason"] = "normal_taxi_handler_rejected";
+        }
+        saved.receipt["receipt_persisted"] = PersistTaxiOperation(id, saved);
+        return Response(request, Text(saved.receipt, "status") != "failed", saved.receipt);
+    }
+
     void Update()
     {
         // World::Update calls this after MapMgr::Update has joined its workers.
@@ -1793,6 +2310,15 @@ public:
             }
             if (actor->phase == "ready")
             {
+                ProcessTaxi(*actor, player);
+                if (player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT))
+                {
+                    // Native taxi motion owns execution until landing; no follow/escape/housekeeping clear.
+                    ProcessProtectionChanges(*actor, player);
+                    if (player->IsInWorld())
+                        SampleJournal(*actor, player);
+                    continue;
+                }
                 RefreshSpiritHealerFrames(player);
                 if (player->isMoving() || player->IsInCombat() || player->IsNonMeleeSpellCast(false))
                     ClearCosmeticEmote(*actor, player);
@@ -3354,6 +3880,26 @@ public:
         Player* player = session->GetPlayer();
         if (!player || !session->IsHeadless())
             return;
+        if (CurrentTaxiPacket && CurrentTaxiPacket->session == session)
+        {
+            if (packet.GetOpcode() == SMSG_NEW_TAXI_PATH)
+                CurrentTaxiPacket->learned = true;
+            else if (packet.GetOpcode() == SMSG_SHOWTAXINODES && packet.size() >= 16)
+            {
+                WorldPacket copy(packet);
+                uint32 show;
+                copy >> show >> CurrentTaxiPacket->menuSource >> CurrentTaxiPacket->menuNode;
+                if (show != 1)
+                    CurrentTaxiPacket->menuNode = 0;
+            }
+            else if (packet.GetOpcode() == SMSG_ACTIVATETAXIREPLY && packet.size() >= 4)
+            {
+                WorldPacket copy(packet);
+                uint32 reply;
+                copy >> reply;
+                CurrentTaxiPacket->reply = reply;
+            }
+        }
         CaptureItemUsePacket(session, packet);
         if (CurrentGuardAction && CurrentGuardAction->owner == player->GetGUID())
         {
@@ -5395,6 +5941,7 @@ private:
         result["recovery"] = RecoverySnapshot(player);
         result["trade"] = TradeSnapshot(player);
         result["item_use"] = ItemUseSnapshot(player);
+        result["taxi"] = TaxiSnapshot(player);
         uint32 rollTotal = 0;
         Json::array rolls = LootRollSnapshot(player, rollTotal);
         result["loot_rolls_coverage"] = Json::object{{"total", rollTotal}, {"included", rolls.size()},
@@ -6589,7 +7136,44 @@ private:
                 context.observedSequence = uint64(value);
         }
         GuardActionScope scope(context);
-        Json::object response = ActionImpl(request, name);
+        Json::object response;
+        try
+        {
+            response = ActionImpl(request, name);
+        }
+        catch (std::exception const& exception)
+        {
+            if (context.action != "taxi_start")
+                throw;
+            auto paid = _taxiOperations.find(context.request);
+            response = paid == _taxiOperations.end()
+                ? Error(request, "invalid_taxi_action", exception.what())
+                : Response(request, Text(paid->second.receipt, "status") != "failed", paid->second.receipt);
+        }
+        if (context.action == "taxi_start")
+        {
+            auto& result = response.at("result").as_object();
+            if (!result.if_contains("operation"))
+            {
+                auto const& action = request.at("action").as_object();
+                result["operation"] = "taxi_start";
+                result["request_id"] = Text(request, "id");
+                result["target_guid"] = action.if_contains("target_guid")
+                    ? action.at("target_guid") : Json::value(nullptr);
+                result["taxi_menu_id"] = action.if_contains("taxi_menu_id")
+                    ? action.at("taxi_menu_id") : Json::value(nullptr);
+                result["destination_node_id"] = action.if_contains("destination_node_id")
+                    ? action.at("destination_node_id") : Json::value(nullptr);
+                result["status"] = "failed";
+                result["phase"] = "rejected";
+                result["pending"] = false;
+                result["terminal"] = true;
+                result["arrived"] = false;
+                result["persistent"] = false;
+                result["reason"] = response.if_contains("error")
+                    ? Text(response.at("error").as_object(), "code") : "preflight_rejected";
+            }
+        }
         try
         {
             if (!context.interventions.empty() || context.dropped)
@@ -6625,6 +7209,13 @@ private:
         std::string id = Text(request, "id");
         if (type == "loot_roll")
             return LootRollAction(request, action, actor, player);
+        if (type == "taxi_list" || type == "taxi_start")
+            return TaxiAction(request, action, actor, player);
+        if (type != "say" && type != "emote"
+            && (player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT)
+                || !PendingTaxiRequest(name).empty()))
+            return Error(request, "taxi_execution_reserved",
+                "Native flight or its unresolved paid request owns movement; observe the original request");
         if (type == "stop" || type == "move_to" || type == "target"
             || (action.if_contains("target_guid")
                 && GuidNumber(action, "target_guid") != player->GetTarget().GetRawValue()))
@@ -7515,6 +8106,10 @@ private:
     std::map<std::string, std::shared_ptr<Actor>> _actors;
     std::map<std::string, CachedRequest> _requests;
     std::deque<std::string> _requestOrder;
+    std::map<std::string, TaxiOperation> _taxiOperations;
+    std::string _taxiFile;
+    bool _taxiLoaded = false;
+    bool _taxiJournalHealthy = true;
     std::mutex _eventMutex;
     std::map<WorldSession*, int> _creationResults;
     std::set<WorldSession*> _ownedSessions;

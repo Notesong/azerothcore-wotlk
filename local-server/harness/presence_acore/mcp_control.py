@@ -190,6 +190,50 @@ class McpControlManager:
     def _save(self, record: dict[str, Any]) -> None:
         _write(self._record_path(record['operation_id']), record)
 
+    @staticmethod
+    def _taxi_identity(record: dict[str, Any], result: Any) -> bool:
+        action = record.get('request', {}).get('action', {})
+        return (isinstance(result, dict) and result.get('operation') == 'taxi_start'
+            and result.get('request_id') == record.get('operation_id')
+            and all(type(result.get(key)) is type(action.get(key)) and result.get(key) == action.get(key)
+                for key in ('target_guid', 'taxi_menu_id', 'destination_node_id')))
+
+    @classmethod
+    def _taxi_terminal(cls, record: dict[str, Any]) -> bool:
+        response = record.get('response')
+        result = response.get('result') if isinstance(response, dict) else None
+        return (cls._taxi_identity(record, result)
+            and result.get('terminal') is True and result.get('pending') is False
+            and (result.get('status') == 'completed' and result.get('arrived') is True
+                or result.get('status') == 'failed' and result.get('arrived') is False))
+
+    @classmethod
+    def _taxi_valid_result(cls, record: dict[str, Any], result: Any) -> bool:
+        if not cls._taxi_identity(record, result):
+            return False
+        return (cls._taxi_terminal({**record, 'response': {'result': result}})
+            or result.get('status') == 'accepted' and result.get('pending') is True
+                and result.get('terminal') is False and result.get('arrived') is False)
+
+    def _pending_taxi(self) -> str | None:
+        # The prepared receipt is durable before dispatch. Use it as the fence,
+        # including after a crash, handback or a new transport/generation. A
+        # second index file would leave a crash gap between the two writes.
+        _plain(self.receipt_root)
+        if not self.receipt_root.exists():
+            return None
+        for path in sorted(self.receipt_root.glob('*.json')):
+            try:
+                operation_id = _operation(path.stem)
+            except ControlError:
+                continue
+            record = self._record(operation_id)
+            if (record and record.get('kind') == 'action'
+                    and record.get('request', {}).get('action', {}).get('type') == 'taxi_start'
+                    and not self._taxi_terminal(record)):
+                return operation_id
+        return None
+
     def _new(self, operation_id: str, kind: str, request: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         fingerprint = _hash(json.dumps(request, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':')))
         existing = self._record(operation_id)
@@ -231,12 +275,14 @@ class McpControlManager:
         with self.lock_factory():
             state = self._state()
             mode = state.get('authorization_mode', 'sdk_session')
+            pending_taxi = self._pending_taxi()
             return {'available': True, 'character': CHARACTER, 'state': state['state'],
                 'generation': state['generation'], 'control_mode': mode,
                 'owned_by_session': mode == 'sdk_session' and bool(owner_session)
                     and state.get('owner_session_hash') == _owner(owner_session),
                 'owned_by_control_token': mode == self.authorization_mode == 'lease_token'
-                    and state['state'] == 'active' and self._token_matches(state, control_token)}
+                    and state['state'] == 'active' and self._token_matches(state, control_token),
+                **({'pending_taxi_operation_id': pending_taxi} if pending_taxi else {})}
 
     def require_owner(self, owner_session: str, token: str) -> dict[str, Any]:
         with self.lock_factory():
@@ -543,6 +589,13 @@ class McpControlManager:
                 'token_hash': _hash(control_token), 'action': wire, 'observed_sequence': observed_sequence}
             if self.authorization_mode == 'lease_token':
                 request.update(authorization_mode='lease_token', generation=state['generation'])
+            pending_taxi = self._pending_taxi()
+            if pending_taxi and self._record(operation_id) is None:
+                pending_result = (self._record(pending_taxi) or {}).get('response', {}).get('result', {})
+                safe = wire['type'] == 'say' or (wire['type'] == 'loot_roll'
+                    and pending_result.get('status') == 'accepted' and pending_result.get('phase') == 'in_flight')
+                if not safe:
+                    raise ControlError('taxi_start_unresolved')
             record, fresh = self._new(operation_id, 'action', request)
             if not fresh:
                 return _safe_result(record.get('response') or {'available': True, 'character': CHARACTER,
@@ -559,9 +612,13 @@ class McpControlManager:
                     **({'speech_provenance': speech} if speech is not None else {}))
                 if not isinstance(result, dict):
                     raise ControlError('invalid_response')
+                if wire['type'] == 'taxi_start' and not self._taxi_valid_result(record, result):
+                    raise ControlError('invalid_response')
                 response = {'available': True, 'character': CHARACTER, 'operation_id': operation_id,
                     'request_id': operation_id, 'action_type': wire['type'], 'status': result.get('status', 'unknown'),
                     'result': result, 'outcome_uncertain': result.get('status') not in {'accepted', 'completed', 'failed'}}
+                if wire['type'] == 'taxi_start' and result.get('phase') == 'outcome_unknown':
+                    response['outcome_uncertain'] = True
             except Exception as error:
                 code = getattr(error, 'code', 'bridge_error')
                 if not isinstance(code, str) or not re.fullmatch('[a-z0-9_]{1,64}', code):
@@ -586,7 +643,9 @@ class McpControlManager:
             if record['kind'] != 'action':
                 return _safe_result(response or {'available': True, 'character': CHARACTER,
                     'operation_id': operation_id, 'status': 'pending'})
-            if response and response.get('status') not in {'accepted', 'unknown'}:
+            taxi_pending = (record.get('request', {}).get('action', {}).get('type') == 'taxi_start'
+                and not self._taxi_terminal(record))
+            if response and response.get('status') not in {'accepted', 'unknown'} and not taxi_pending:
                 return _safe_result(response)
             try:
                 polled = self.client.action_result(CHARACTER, operation_id)
@@ -596,10 +655,14 @@ class McpControlManager:
                         or envelope.get('id') != operation_id or envelope.get('op') != 'action'
                         or envelope.get('character') != CHARACTER or type(envelope.get('ok')) is not bool):
                     raise ControlError('mismatched_action_result')
-                result = envelope.get('result') if envelope['ok'] else envelope.get('error')
+                action_type = record['request']['action']['type']
+                # Taxi rejections carry their exact terminal identity in result
+                # even when the normal game envelope is unsuccessful.
+                result = envelope.get('result') if envelope['ok'] or action_type == 'taxi_start' else envelope.get('error')
                 if not isinstance(result, dict) or result.get('request_id', operation_id) != operation_id:
                     raise ControlError('mismatched_action_result')
-                action_type = record['request']['action']['type']
+                if action_type == 'taxi_start' and not self._taxi_valid_result(record, result):
+                    raise ControlError('mismatched_action_result')
                 if result.get('action_type', action_type) != action_type:
                     raise ControlError('mismatched_action_result')
                 if isinstance(result.get('guard_interventions'), list):
@@ -611,8 +674,16 @@ class McpControlManager:
                     'request_id': operation_id, 'action_type': action_type,
                     'status': status, 'outcome_uncertain': status not in {'accepted', 'completed', 'failed'},
                     'result': result, 'resolution': 'original_request_result'}
+                if action_type == 'taxi_start' and result.get('phase') == 'outcome_unknown':
+                    resolved['outcome_uncertain'] = True
                 if not envelope['ok']:
-                    resolved['error'] = result
+                    error = envelope.get('error', result) if action_type == 'taxi_start' else result
+                    if isinstance(error, dict) and isinstance(error.get('guard_interventions'), list):
+                        error = {**error, 'guard_interventions': [item for item in error['guard_interventions']
+                            if isinstance(item, dict) and item.get('request_id') == operation_id
+                            and item.get('action_type') == action_type
+                            and item.get('attribution') == 'synchronous_action']}
+                    resolved['error'] = error
                 return _safe_result(self._finish(record, resolved))
             except Exception:
                 return {**_safe_result(response or {}), 'available': False, 'character': CHARACTER,

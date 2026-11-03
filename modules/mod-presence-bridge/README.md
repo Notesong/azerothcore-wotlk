@@ -510,3 +510,47 @@ under the original request ID. A referenced pending operation is identified
 separately rather than relabeled as a new successful action. `loot_result`
 requires the actual normal-handler stored-item/money receipt. Journal reads
 never open loot, complete quests, cast spells, or call a model.
+
+## Ordinary flightpaths
+
+`taxi_list` requires an observed `target_guid` for a friendly, visible flight master
+within normal interaction range. It invokes the normal query handler. Learning a
+new local point returns `phase: node_learned`, `menu_open: false`; query again to
+open the real menu. Opening a menu does not unlock distant points.
+
+The observation's `taxi.menu` binds an opaque 32-character lowercase hexadecimal
+`taxi_menu_id`, flight master, source node, learned faction network, reputation
+discount and 60-second lifetime. Destinations expose their actual route node IDs,
+names, copper fares and affordability. Routes use only learned normal faction
+nodes with existing native path data, including legal connecting legs. Taxi-cheat
+mode is rejected rather than exposing unlearned routes.
+
+`taxi_start` requires exactly `target_guid`, `taxi_menu_id` and
+`destination_node_id` in addition to `type`. The bridge rechecks the current
+NPC/menu, route, cost, money and normal player state, then invokes the normal
+express-taxi handler. It accepts no caller path, price or coordinates. The quote
+is the sum of normally rounded per-leg fares; `initial_charge_copper` describes
+the observed initial charge separately. Instant-taxi configurations are rejected
+before dispatch because this feature tracks real flight execution.
+
+The original start UUID is persisted before payment to
+`PresenceBridge.TaxiReceiptFile` (default `presence-bridge-taxi.jsonl`). Keep this
+private runtime journal with the server state. An unreadable/corrupt journal or an
+unresolved operation never authorizes a fresh payment. `action_result` can recover
+the exact original operation beyond the bounded request cache and after restart.
+Conflicting UUID reuse is rejected. The history has a 4,096-operation bound and
+fails closed when full; archive only resolved entries with the server stopped.
+
+Accepted flight is pending, not arrival. The snapshot exposes actual native flight
+state/path progress. The headless actor acknowledges finalized native splines and
+normal worldport transitions without a movement or teleport shortcut. Flight owns
+motion until it ends; follow, stop, attack and housekeeping cannot clear it.
+Ordinary eligible loot votes and speech retain their separate action paths.
+The terminal original receipt distinguishes observed landing at the destination
+from interrupted/unknown outcomes. `taxi_node_learned`, `taxi_menu_opened`,
+`taxi_started`, `taxi_arrived` and `taxi_interrupted` are factual native events;
+MCP groups them under `travel_change`, with landing also matching `arrival`.
+
+The native pure tests and offline controller/transport checks cover these rules.
+A successful autonomous paid ride, map-crossing continuation and party reunion
+remain playtests; they are not inferred from exposing a route or accepting a start.

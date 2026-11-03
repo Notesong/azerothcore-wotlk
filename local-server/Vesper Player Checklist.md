@@ -299,7 +299,7 @@ is not proof that an item exists on this corpse.
 - [ ] Broaden grounded role facts for direct healing, damage and utility abilities beyond the current support subset.
 - [ ] Demonstrate interrupt, cleanse, stun and emergency healing when actually available and appropriate. Respect protection/taming restrictions and verify the spell's real outcome.
 
-## 12. Travel, hearth, taxis, inn binding and mounts — partial/not built
+## 12. Travel, hearth, taxis, inn binding and mounts — partial
 
 - [x] Short-range same-map pathfinding and persistent following provide local travel mechanics.
 - [x] Distinguish accepted movement intention from selected-target inspection and unverified historical proposals.
@@ -315,8 +315,25 @@ is not proof that an item exists on this corpse.
 - [ ] Verify long-term follow/old-NPC oscillation and recovery across interruptions. The identical frozen case
   also changed from trainer movement to follow, but one live success does not establish general reliability.
 - [x] Failed moves retain exact destinations, source sequence and bounded recent failure counts for 60 seconds. Planner guidance distinguishes a rejected path from movement and repeated current-position moves from useful travel; ordinary navigation checks remain in force.
-- [ ] Add deliberate hearthstone use, known taxi routes/selection and intentional inn binding, with observed availability, costs and resulting destination.
+- [x] Expose friendly flight masters and normal local-node discovery, followed by a fresh route menu.
+  Offer only Vesper's learned reachable network, with route identity and normal reputation fares.
+- [x] Install paid `taxi_start` choices for body, already active Full social turns and direct MCP.
+  Bind the fresh menu/NPC/destination and preserve original-request uncertainty fences across restarts;
+  a missing reply does not authorize a second purchase. Native flight owns motion until landing.
+- [x] Expose actual flight state, normal headless spline/worldport continuation, original-request results
+  and bounded MCP taxi-change/arrival events. Routine follow/stuck replans wait locally in transit;
+  chat, eligible loot rolls and meaningful safety/ownership changes retain attention.
+- [ ] Playtest normal local discovery → known destination choice → paid flight → verified landing,
+  including continuing after a map transition when an ordinary route crosses maps. Installed mechanics
+  and offline checks do not establish a successful autonomous ride.
+- [ ] Add deliberate hearthstone use and intentional inn binding, with observed availability and resulting destination.
 - [ ] Add reliable mount/dismount state and controls, travel/combat transitions and destination verification. Existing spell casting is not a complete travel subsystem.
+
+November 2 flightpaths installation passed **2,922 Presence checks**, all **11 native pure suites**,
+**415 harness checks plus 89 subtests**, and **100 Gateway source / 100 compiled checks**.
+The incremental worldserver build passed. Clean shutdown, startup, fresh native/MCP taxi state,
+released control and resumed Qwen were verified; all saved settings were preserved. No paid flight
+was dispatched for verification, so a real destination choice and landing remain unchecked above.
 
 ## 13. World traversal — partial
 

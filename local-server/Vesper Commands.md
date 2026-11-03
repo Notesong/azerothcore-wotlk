@@ -1,6 +1,6 @@
 # Vesper command reference
 
-Current AzerothCore setup — November 1, 2026.
+Current AzerothCore setup — November 2, 2026.
 
 Feature progress and remaining playtests: [Vesper Player Checklist.md](Vesper%20Player%20Checklist.md).
 
@@ -597,10 +597,51 @@ facts immediately; a quest dialog is empty until Vesper opens one normally.
 in Presence when ready to test his choices; installation preserves its stopped or paused setting.
 
 Remaining player-loop work includes targeted quest-item/consumable use, talent
-spending, hearthstone/flight/bind actions, and
+spending, hearthstone/bind actions, and
 release, corpse reclaim and real resurrection-offer controls. Ordinary game-object
 interaction and known unit-targeted spell casting already exist, but do not cover
 every quest mechanic.
+
+## Flight masters and flightpaths
+
+Bring Vesper beside a friendly flight master. You can ask in party chat:
+
+```text
+/p Vesper, learn this flight point and check which routes you know.
+/p Vesper, take the flight to Silvermoon if you know it and can afford it.
+```
+
+These are ordinary requests to the model, rather than fixed chat commands.
+He must discover flight points normally. First contact can learn the local
+point without opening the route menu; a second query opens it. Destinations
+come from his own learned, reachable network, with the normal reputation fare
+in copper. He cannot unlock a distant route by asking for it. An affordable
+route is an option, not an instruction to spend his money.
+
+Body, an already active Full-mode social turn, and direct MCP can use:
+
+```json
+{"type":"taxi_list","target_guid":"<observed flight-master GUID>"}
+{"type":"taxi_start","target_guid":"<same GUID>","taxi_menu_id":"<current menu nonce>","destination_node_id":123}
+```
+
+Copy the actual GUID, menu nonce and destination ID from the fresh observation;
+123 above is only a field example. Menus expire and are rechecked before payment.
+No caller supplies a price, path or destination coordinates. The normal server
+handler charges and starts the flight; the quote covers the route's per-leg fares,
+which are charged as the ordinary flight proceeds.
+
+`taxi` in the full observation shows the current menu, flight progress and
+original-request result. Starting is distinct from arriving. During native
+flight, movement/follow retries wait locally; useful chat and eligible loot
+votes can still get attention. Landing wakes the body again. A lost start reply
+is resolved through that original request ID, without buying the ride again.
+MCP can wait for `travel_change` or `arrival`, then read a fresh observation.
+If ChatGPT still shows the older action list, refresh Local Context Gateway in
+its app settings once to load the new taxi actions and wait filter.
+
+The mechanics are installed; an actual chosen flight and arrival remain a
+playtest. Hearthstones, inn binding and mount management are separate work.
 
 ## Giving Vesper gear through trade
 

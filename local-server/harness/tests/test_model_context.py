@@ -406,9 +406,10 @@ def stamp(number):
             self.skipTest('Current Presence pure projections are not installed')
         for name in names:
             (self.tools / name).write_bytes((source / name).read_bytes())
-        item_helper = source / 'game_player_native_item_use.py'
-        if item_helper.is_file():
-            (self.tools / item_helper.name).write_bytes(item_helper.read_bytes())
+        for suffix in ('item_use', 'loot_rolls', 'taxi'):
+            helper = source / ('game_player_native_' + suffix + '.py')
+            if helper.is_file():
+                (self.tools / helper.name).write_bytes(helper.read_bytes())
         original_import, before_path, before_modules = builtins.__import__, list(sys.path), set(sys.modules)
 
         def deny_runtime(name, globals=None, locals=None, fromlist=(), level=0):
