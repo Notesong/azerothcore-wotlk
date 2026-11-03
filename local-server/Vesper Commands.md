@@ -673,6 +673,26 @@ received the item. Roll resolution and inventory storage are separate facts.
 New rolls receive meaningful body attention; countdown ticks do not create a model call
 every second. The model chooses among the available actions without an automatic Need/Greed policy.
 
+A controller update is installed to give an eligible pending roll its own compact,
+time-limited body decision before routine quests, looting, following, shopping,
+gear changes or social-turn reservation. The focused request contains the selected
+roll, item/equipment facts, role and relevant human instructions. It omits old quest
+working notes and the unrelated world/action catalog. Existing movement and melee
+continue while Vesper chooses Need, Greed, Pass or a deliberate wait.
+Unresolved eligible rolls receive bounded reminder opportunities as the deadline
+approaches; an uncertain submitted vote retains its original fence. This does not
+add social API calls or reduce the full world data available through MCP.
+Life changes, critical health, protection changes and actual party danger can
+preempt the roll; ordinary combat activity does not repeatedly push it aside.
+Fresh verified lead messages refresh the focused decision and remain queued for
+normal handling afterward. UI pause and direct MCP ownership keep their normal priority.
+
+The November 2 controller update passed 2,876 offline game-player checks and
+176 independent focused checks. A historical Malachite scenario replayed through
+the real local Qwen request/parser returned a deliberate Pass in 1.406 seconds,
+with 861 input tokens. That was a model-only replay using confirmed historical
+roll facts and current item-template enrichment; no game vote was sent.
+
 MCP uses the same action inside `wow_act`, after a normal takeover, with a fresh
 operation UUID and the current control token. `wow_wait` with `loot_change` includes
 roll start, vote and resolution events; inspect the fresh returned state before acting.

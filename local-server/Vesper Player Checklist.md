@@ -231,6 +231,11 @@ is not proof that an item exists on this corpse.
   364 harness tests plus 89 subtests; 96 Gateway checks against source and compiled output.
   After the clean restart, Vesper was online, Full was running, control was released and saved settings were preserved.
 - [ ] Playtest Need, Greed and Pass on real party loot, including an expired round and normal inventory delivery.
+  The first observed Malachite roll expired without a submitted vote: the body woke four times with
+  legal choices but pursued quests and ordinary corpse loot. A compact, deadline-aware priority decision
+  is installed; its first real vote remains a playtest. The six-file controller update passed 2,876
+  regression checks and 176 independent focused checks. A model-only historical Malachite replay
+  returned deliberate Pass in 1.406 seconds with 861 input tokens, without sending a game action.
 - [ ] Handle bind-on-pickup/other confirmations, unique limits, quest loot, full bags and partial/error results explicitly; avoid loops or assumptions that every item was received.
 
 ## 10. Combat and party awareness — core mechanics installed; needs playtest
