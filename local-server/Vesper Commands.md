@@ -1086,6 +1086,15 @@ a fresh fight, informed following/retreat and reliable assistance still need pla
 
 ## Models and attention
 
+The first companion-framing update distinguishes already active support effects
+from actual missing-buff work. When observed buffs are present, a quiet decision
+can continue the agreed plan, wait, follow, speak or take a grounded initiative;
+it is no longer automatically framed as a buff-upkeep assignment. Remaining aura
+time is also shown in readable seconds/minutes. Casting stays available, including
+an intentional refresh. This adds no timed refresh policy or extra model calls.
+Unknown coverage does not become “everyone is buffed,” and current danger, human
+directions, quest/dialog progress and Moon protection keep their existing priority.
+
 The body is back on local **Qwen3.5-4B Q4_K_XL** (`qwen3.5-4b-action`); the social
 lane uses **GPT-6 Luna** (`gpt-6-luna`). Both use reasoning `none`, with Qwen
 thinking disabled. This is the November 1 cost choice; dated decisions and tests

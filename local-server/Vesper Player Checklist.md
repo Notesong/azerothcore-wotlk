@@ -305,6 +305,18 @@ is not proof that an item exists on this corpse.
   (19740, effect mask 3), both from Vesper (caster GUID 102). A self blessing alone was not used as proof.
 - [ ] Demonstrate continued useful upkeep, expiry recovery and party rejoining without unnecessary recasts
   or combat distraction. Repeated casts were still observed; successful party application does not solve that behavior.
+- [x] Separate observed active buffs from missing-effect work in both model lanes. Show readable actual
+  aura time alongside raw milliseconds, and compute the support summary before candidate display limits.
+  Quiet buff-upkeep focus requires a fresh missing effect with observed mechanical readiness; an all-present
+  quiet scene instead permits companion continuity, the agreed goal, waiting, following, speech or initiative.
+  Unknown/suppressed/alternative effects remain distinct. Normal casting and near-expiry decisions stay available.
+- [ ] Playtest the first companion-framing adjustment against the repeated healthy-Might loop. This changes
+  presentation and guidance, not the executor, a timed refresh rule or the ability to cast deliberately.
+  Installed November 2 as seven Presence files with **3,054 checks passed**, saved settings preserved,
+  Full resumed and the world server kept online. Paired local replays used identical historical world
+  facts/goals and dispatched no actions: both quiet-scene versions waited; the moving-party choice
+  changed from Aurenne's nine-minute Might to Edgalin's 81-second Might. This is one grounded choice,
+  not proof that repeated buffs or all future companion decisions are solved.
 - [x] Extend the native beneficial guard to positive persistent area-aura sources under Moon, uncertain protection
   or active/recent taming. Cancel only owned sources through normal aura removal; other casters' sources remain.
   Full cast choices and violation auditing remain available.
