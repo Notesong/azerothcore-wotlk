@@ -552,5 +552,38 @@ from interrupted/unknown outcomes. `taxi_node_learned`, `taxi_menu_opened`,
 MCP groups them under `travel_change`, with landing also matching `arrival`.
 
 The native pure tests and offline controller/transport checks cover these rules.
-A successful autonomous paid ride, map-crossing continuation and party reunion
-remain playtests; they are not inferred from exposing a route or accepting a start.
+Subsequent November 2 play verified Qwen's Tranquillien → Silvermoon City ride,
+normal 99-copper fare and original-request landing receipt. New-node discovery,
+cross-map continuation and consistent future party travel remain playtests.
+
+## Verified quest lifecycle
+
+`quest_lifecycle` exposes up to 64 actual acceptance/reward receipts for the
+bridge-owned character. Acceptance uses the normal player quest-accept hook and
+requires the quest to be active in the log with ordinary complete/incomplete
+status. Existing login state is a baseline, never a new-acceptance backfill.
+Duplicate acceptance while held is suppressed; normal abandonment resets the
+episode without emitting a reward event.
+
+Reward receipts come from the actual end of normal `RewardQuest`, after the
+quest is rewarded and no longer active/in the log. Opening gossip, request-items,
+offer-reward and completion packets do not independently create a lifecycle
+receipt. The actual hook also covers silent rewards. No event is inferred from
+quest disappearance.
+
+The schema is `native-quest-lifecycle/v1`. Each receipt carries `transition_id`,
+decimal-string `sequence`, `actor_guid`, `quest_id`, `title`, `kind` (`accepted`
+or `rewarded`), native timestamp/source and measured quest state. Transition IDs
+combine the server journal epoch with the global sequence. Sequences need not be
+contiguous for one actor. Ring metadata includes capacity, included count,
+oldest/newest sequence and cumulative `dropped_total`; eviction is explicit.
+The same transition is a `quest_changed` event, so existing MCP `quest_change`
+waits wake normally. A server restart establishes a new epoch.
+
+Presence consumes these facts to queue fixed party acceptance/turn-in notices
+without invoking a model or claiming model authorship. Saved notice identities
+and original speech UUIDs prevent repeated dialogs or controller restarts from
+blindly resending a message. Delivery left unknown by a world restart stays
+explicitly unknown and is not claimed as sent; later native events can proceed.
+Both model lanes see bounded recent historical transitions, separately from the
+fresh quest log. Full MCP observations retain the complete native ring.

@@ -52,6 +52,18 @@ models selected at those times; behavior still needs playtesting.
 
 ## 1. Quest acceptance, readiness, turn-in and rewards — mechanics installed; needs playtest
 
+- [x] Expose native verified acceptance and post-reward lifecycle receipts with distinct transition IDs,
+  title, actor and timestamp. Failed/full-log attempts, reopened menus and abandonment are not successes.
+- [x] Queue fixed party acceptance/turn-in confirmations without a model call, preserving pending original
+  speech IDs across controller restarts. Share bounded recent native facts with body and Social; full MCP
+  retains the native receipt ring and coverage. Held quests are not backfilled as new acceptances.
+- [ ] Playtest a new NPC/shared/item acceptance and an actual reward confirmation, including repeatable
+  quest episodes and recovery of a queued notice. Offline checks do not establish live notice delivery.
+  Installed November 2 as 13 files after **3,006 Presence checks**, **418 harness checks plus 89 subtests**,
+  all **12 native pure suites** and the incremental worldserver build passed. Clean shutdown/startup,
+  fresh native lifecycle/MCP preview, released control and resumed Full were verified; saved settings
+  were preserved. The initial native ring was empty and explicitly did not backfill held quests.
+
 - [x] Keep quiet current NPC acceptance/turn-in phases legible while a resolved Moon binding protects a
   different creature. This changes short-guide selection only; persistent identity, full Moon instructions,
   hard execution guard and buff/trade restrictions remain active. Normal NPC/dialog/action checks remain.
@@ -233,7 +245,8 @@ is not proof that an item exists on this corpse.
 - [ ] Playtest Need, Greed and Pass on real party loot, including an expired round and normal inventory delivery.
   The first observed Malachite roll expired without a submitted vote: the body woke four times with
   legal choices but pursued quests and ordinary corpse loot. A compact, deadline-aware priority decision
-  is installed; its first real vote remains a playtest. The six-file controller update passed 2,876
+  is installed. The user subsequently observed an immediate real Pass on November 2; that checks one
+  timely vote, while Need, Greed and normal item delivery still need playtesting. The six-file update passed 2,876
   regression checks and 176 independent focused checks. A model-only historical Malachite replay
   returned deliberate Pass in 1.406 seconds with 861 input tokens, without sending a game action.
 - [ ] Handle bind-on-pickup/other confirmations, unique limits, quest loot, full bags and partial/error results explicitly; avoid loops or assumptions that every item was received.
@@ -323,9 +336,11 @@ is not proof that an item exists on this corpse.
 - [x] Expose actual flight state, normal headless spline/worldport continuation, original-request results
   and bounded MCP taxi-change/arrival events. Routine follow/stuck replans wait locally in transit;
   chat, eligible loot rolls and meaningful safety/ownership changes retain attention.
-- [ ] Playtest normal local discovery → known destination choice → paid flight → verified landing,
-  including continuing after a map transition when an ordinary route crosses maps. Installed mechanics
-  and offline checks do not establish a successful autonomous ride.
+- [x] Verify one ordinary chosen paid flight during play: on November 2, Qwen selected Tranquillien →
+  Silvermoon City. Original request `1ead039871a648cd80364400aac78834` recorded the native flight and
+  later completed with `arrived: true`, landing coordinates and an initial fare of 99 copper.
+- [ ] Playtest new local-node discovery and an ordinary route crossing maps. The single same-map paid
+  ride does not establish those branches or reliable future travel choices.
 - [ ] Add deliberate hearthstone use and intentional inn binding, with observed availability and resulting destination.
 - [ ] Add reliable mount/dismount state and controls, travel/combat transitions and destination verification. Existing spell casting is not a complete travel subsystem.
 
@@ -333,7 +348,8 @@ November 2 flightpaths installation passed **2,922 Presence checks**, all **11 n
 **415 harness checks plus 89 subtests**, and **100 Gateway source / 100 compiled checks**.
 The incremental worldserver build passed. Clean shutdown, startup, fresh native/MCP taxi state,
 released control and resumed Qwen were verified; all saved settings were preserved. No paid flight
-was dispatched for verification, so a real destination choice and landing remain unchecked above.
+was dispatched for installation verification. Subsequent normal play confirmed the same-map ride
+above; new-point discovery and cross-map continuation remain unchecked.
 
 ## 13. World traversal — partial
 
@@ -449,9 +465,9 @@ was dispatched for verification, so a real destination choice and landing remain
 ## 19. Conversation and real emotes — mechanics installed; needs playtest
 
 - [x] A separate social lane can choose conversation; native chat supports party while grouped and local speech while solo.
-- [x] Route conversation and autonomous emotes through the social lane; Full's shared controller executes gameplay choices.
+- [x] Route main conversation and autonomous emotes through the social lane; Full's shared controller executes gameplay choices.
   Body output cannot echo the human's chat as Vesper's own line. Direct MCP speech/emote controls remain available.
-  Optional evidence-backed body reports are installed below; model behavior still needs a playtest.
+  Ordinary optional body speech and typed factual reports are installed below; model behavior still needs a playtest.
 - [x] Install and verify native Full social gameplay: reserve one primary action slot for an already eligible
   social call, refresh and validate relevant facts after generation, and use the same policies, normal native
   actions, MCP interlock, Moon guard and original-request uncertainty handling as the body.
@@ -476,6 +492,20 @@ was dispatched for verification, so a real destination choice and landing remain
 - [ ] Playtest natural replies, greetings and downtime expression with cooldowns; avoid combat distraction, repeated lines and constant permission questions.
 - [x] Install the optional body reports and VesperVoice addon files in the matching 17-file update.
   Keep normal speech intact; attach runtime lane/provider/requested-model metadata outside the utterance.
+- [x] Permit ordinary optional Qwen speech in existing gameplay calls without requiring an evidence tag.
+  Explain intent, ask questions or comment with 20-second body spacing and 30-second queued expiry;
+  keep human-reply priority, normal delivery checks, deduplication and original-request uncertainty handling.
+  Shared transcript entries carry source and time without turning model claims into verified world facts.
+- [x] Ground trainer pages in normal Available/Unavailable/Known states, per-page eligibility and exact
+  next-page actions for both lanes. An unchanged first-page query is not learning, and later pages remain unknown.
+- [x] Verify ordinary Qwen speech in live play: five later party lines had successful delivery receipts
+  and Body/local `qwen3.5-4b-action` provenance after installation.
+- [x] The user's November 2 screenshot confirmed the Qwen source chip beside ordinary party speech.
+- [ ] Playtest chip hover details, timely trainer progress and Luna's use of the shared updates.
+  Optional speech does not guarantee that the model chooses to say something.
+  Installed November 2 as ten Presence files with **2,971 offline checks passed**, saved settings
+  preserved and Full resumed without a world restart. A frozen local Qwen replay chose trainer page 1
+  and a natural spoken line; no game action was dispatched by that replay.
 - [x] Verify the clean world restart and game/administration readiness, preserve saved settings, resume Full,
   and release MCP control. Vesper was online and alive with Full running unpaused and no reported error.
   The separate Social-only controller stays stopped because Full supplies both model lanes.

@@ -24,18 +24,23 @@ receiving your gesture does not reset it or require a reply.
 
 These are social gestures, not fixed commands that order a particular reply.
 
-Conversation and autonomous emotes belong to the social lane. In native **Full** mode,
+The social lane handles the main conversation and autonomous emotes. Qwen can also
+choose ordinary brief speech during his existing gameplay decisions, including
+plans, questions and difficulties; he no longer needs a special report tag.
+Ordinary body lines have 20-second spacing and yield to pending human replies.
+In native **Full** mode,
 an active social call can also choose a normal gameplay action through the shared controller.
 That turn reserves one primary action slot instead of also dispatching a Qwen action.
 Social `wait` preserves the existing body intention. The standalone legacy Social-only mode
-keeps its speech/emote behavior. The body-reporting update below also permits brief body
-reports supported by current gameplay evidence. Body output cannot repeat your
+keeps its speech/emote behavior. Typed factual body reports remain available
+alongside ordinary speech. Body output cannot repeat your
 chat as Vesper's own speech. Direct MCP speech and emote controls remain available.
 
 The body-reporting and source-chip update is **installed**, and Full is running again.
-It permits occasional evidence-backed gameplay reports without adding model calls;
-conversation and emotes remain with Social. Settings were preserved and MCP control
-was released. Client chips and natural reports still need a playtest.
+It permits gameplay reports without adding model calls; the November 2 controller
+update also allows ordinary optional Qwen speech. Settings were preserved and MCP control
+was released. Live Qwen speech and the Luna/Qwen chips are confirmed; MCP labels,
+hover details and typed completion/blocker reports still need playtests.
 See [Vesper Voice.md](Vesper%20Voice.md).
 
 Learned-ability reports are also installed, without a world restart. After a
@@ -444,6 +449,29 @@ remain auditable. These new guarded area-aura cases still need a live playtest.
 
 ## Quest dialogs, rewards and bags
 
+### Confirmed quest announcements
+
+Vesper sends a short automatic party notice when the server confirms a real
+quest transition:
+
+```text
+Quest accepted: <quest title>
+Quest turned in: <quest title>
+```
+
+These are fixed controller confirmations from native quest hooks, with no model
+call or model source chip. NPC, shared and item-started acceptance use the same
+actual-success facts. Opening a dialog, trying to accept, asking for a reward,
+an already-held quest and abandoning a quest do not produce a success notice.
+Turn-in confirmation follows the actual reward operation.
+
+Notice identities and pending delivery are saved across controller restarts.
+An uncertain send is checked using its original request ID. Both model lanes
+also receive recent timestamped quest-transition facts, independently of whether
+the party line has been delivered. Current log state remains separate from past
+acceptance or reward. Newly installing this feature does not announce old held
+quests from the quest log.
+
 Installed October 31, 2026. Vesper receives current NPC quest dialogs, advertised reward choices and item
 comparisons, the normal item-check-to-reward transition, explicit quest status
 names and nearby questgiver relations. The body planner chooses whether to accept, turn in
@@ -640,8 +668,10 @@ MCP can wait for `travel_change` or `arrival`, then read a fresh observation.
 If ChatGPT still shows the older action list, refresh Local Context Gateway in
 its app settings once to load the new taxi actions and wait filter.
 
-The mechanics are installed; an actual chosen flight and arrival remain a
-playtest. Hearthstones, inn binding and mount management are separate work.
+Qwen's Tranquillien → Silvermoon City flight and landing were verified during
+November 2 play, with a normal 99-copper fare. New-point discovery, cross-map
+flights and consistent future travel still need checks. Hearthstones, inn
+binding and mount management are separate work.
 
 ## Giving Vesper gear through trade
 

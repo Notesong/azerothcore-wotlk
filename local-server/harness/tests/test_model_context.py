@@ -406,7 +406,7 @@ def stamp(number):
             self.skipTest('Current Presence pure projections are not installed')
         for name in names:
             (self.tools / name).write_bytes((source / name).read_bytes())
-        for suffix in ('item_use', 'loot_rolls', 'taxi'):
+        for suffix in ('item_use', 'loot_rolls', 'taxi', 'quest_notices'):
             helper = source / ('game_player_native_' + suffix + '.py')
             if helper.is_file():
                 (self.tools / helper.name).write_bytes(helper.read_bytes())

@@ -43,6 +43,7 @@
 #include "PresenceItemUsePolicy.h"
 #include "PresenceLootRollPolicy.h"
 #include "PresenceQuestCommand.h"
+#include "PresenceQuestLifecyclePolicy.h"
 #include "PresenceProtectionPolicy.h"
 #include "PresencePickupPolicy.h"
 #include "PresenceTaxiPolicy.h"
@@ -1080,6 +1081,13 @@ struct Actor
     TaxiMenu taxiMenu;
     std::string taxiFlightRequest;
     uint32 taxiAcknowledgedSpline = 0;
+};
+
+struct QuestLifecycleFrame
+{
+    QuestLifecycleEpisodes episodes;
+    std::deque<Json::object> receipts;
+    uint64 dropped = 0;
 };
 
 struct OpeningLoot
@@ -2310,6 +2318,7 @@ public:
             }
             if (actor->phase == "ready")
             {
+                RefreshQuestLifecycleBaseline(player);
                 ProcessTaxi(*actor, player);
                 if (player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT))
                 {
@@ -2989,8 +2998,125 @@ public:
             {"request_id", Text(request, "id")}, {"recovery_receipt", std::move(receipt)}});
     }
 
+    std::set<uint32> HeldQuestIds(Player* player)
+    {
+        std::set<uint32> result;
+        for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            if (uint32 quest = player->GetQuestSlotQuestId(slot))
+                result.insert(quest);
+        return result;
+    }
+
+    void RefreshQuestLifecycleBaseline(Player* player)
+    {
+        if (!player || !player->GetSession())
+            return;
+        auto held = HeldQuestIds(player);
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        if (_ownedSessions.contains(player->GetSession()))
+            _questLifecycle[player->GetGUID()].episodes.Baseline(std::move(held));
+    }
+
+    void QuestLifecycleTransition(Player* player, Quest const* quest, bool reward)
+    {
+        if (!player || !quest || !player->GetSession() || !player->GetSession()->IsHeadless())
+            return;
+        uint32 id = quest->GetQuestId();
+        QuestStatus status = player->GetQuestStatus(id);
+        bool inLog = player->FindQuestSlot(id) < MAX_QUEST_LOG_SIZE;
+        bool active = player->IsActiveQuest(id);
+        bool rewarded = player->IsQuestRewarded(id);
+        bool verified = reward ? QuestRewardVerified(inLog, active, rewarded)
+            : QuestAcceptanceVerified(inLog, active,
+                status == QUEST_STATUS_INCOMPLETE || status == QUEST_STATUS_COMPLETE);
+        if (!verified)
+            return;
+        auto held = HeldQuestIds(player);
+        Json::object receipt;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(player->GetSession()))
+                return;
+            QuestLifecycleFrame& frame = _questLifecycle[player->GetGUID()];
+            if (!frame.episodes.Initialized())
+            {
+                // Existing login state is a baseline, never an acceptance backfill.
+                frame.episodes.Baseline(std::move(held));
+                if (!reward)
+                    return;
+            }
+            if (!reward && !frame.episodes.Accepted(id, verified))
+                return;
+            if (reward)
+                frame.episodes.Released(id);
+            if (_questLifecycleSequence == std::numeric_limits<uint64>::max())
+                return;
+            std::string sequence = std::to_string(++_questLifecycleSequence);
+            receipt = {{"transition_id", _journalEpoch + ":quest:" + sequence}, {"sequence", sequence},
+                {"actor_guid", std::to_string(player->GetGUID().GetRawValue())}, {"quest_id", id},
+                {"title", quest->GetTitle()}, {"kind", reward ? "rewarded" : "accepted"},
+                {"timestamp", Timestamp()}, {"source", reward ? "normal_player_reward_quest_hook"
+                    : "normal_player_quest_accept_hook"}, {"in_log", inLog}, {"active", active},
+                {"quest_status", uint32(status)}, {"quest_status_name", QuestStatusName(status)},
+                {"rewarded", rewarded}};
+            frame.receipts.push_back(receipt);
+            if (frame.receipts.size() > 64)
+            {
+                frame.receipts.pop_front();
+                ++frame.dropped;
+            }
+        }
+        // Both streams carry this same transition identity. The packet notification
+        // below remains a legacy diagnostic and does not create another lifecycle fact.
+        receipt["type"] = "quest_changed";
+        RecordEvent(player->GetSession(), std::move(receipt));
+    }
+
+    void QuestAccepted(Player* player, Quest const* quest)
+    {
+        QuestLifecycleTransition(player, quest, false);
+    }
+
+    void QuestAbandoned(Player* player, uint32 quest)
+    {
+        if (!player || !player->GetSession())
+            return;
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        if (_ownedSessions.contains(player->GetSession()))
+            if (auto frame = _questLifecycle.find(player->GetGUID()); frame != _questLifecycle.end())
+                frame->second.episodes.Released(quest);
+    }
+
+    Json::object QuestLifecycleSnapshot(Player* player)
+    {
+        Json::object result{{"schema", "native-quest-lifecycle/v1"}, {"epoch", _journalEpoch},
+            {"actor_guid", std::to_string(player->GetGUID().GetRawValue())}, {"capacity", 64},
+            {"oldest_sequence", "0"}, {"newest_sequence", "0"}, {"dropped_total", "0"},
+            {"included", 0}, {"receipts", Json::array{}}, {"scope", "owned_character_actual_hooks"},
+            {"backfilled_from_quest_log", false}};
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto frame = _questLifecycle.find(player->GetGUID());
+        if (frame == _questLifecycle.end())
+            return result;
+        Json::array receipts;
+        for (auto const& receipt : frame->second.receipts)
+            receipts.emplace_back(receipt);
+        if (!receipts.empty())
+        {
+            result["oldest_sequence"] = frame->second.receipts.front().at("sequence");
+            result["newest_sequence"] = frame->second.receipts.back().at("sequence");
+        }
+        result["included"] = receipts.size();
+        result["receipts"] = std::move(receipts);
+        result["dropped_total"] = std::to_string(frame->second.dropped);
+        return result;
+    }
+
     void QuestRewarded(Player* player, Quest const* quest)
     {
+        // This hook is called exactly once at the actual end of RewardQuest,
+        // including silent tracking rewards and repeatable rewards without a new log entry.
+        QuestLifecycleTransition(player, quest, true);
         GuardActionContext* context = CurrentGuardAction;
         if (context && player && quest && context->owner == player->GetGUID()
             && context->quest == quest->GetQuestId())
@@ -4094,7 +4220,8 @@ public:
                 JournalAppendLocked(player, type, std::move(payload), sender);
             }
         }
-        else if (type == "loot_roll_started" || type == "loot_roll_vote" || type == "loot_roll_resolved")
+        else if (type == "loot_roll_started" || type == "loot_roll_vote" || type == "loot_roll_resolved"
+            || type == "quest_changed")
         {
             Json::object payload = event;
             payload.erase("type");
@@ -5901,6 +6028,8 @@ private:
                     actor->session->HandlePlayerLoginFromDB(static_cast<LoginQueryHolder const&>(result));
                     bool loaded = actor->session->GetPlayer() && actor->session->GetPlayer()->IsInWorld();
                     actor->phase = loaded ? "ready" : "failed";
+                    if (loaded)
+                        RefreshQuestLifecycleBaseline(actor->session->GetPlayer());
                     Finish(actor->pendingId, loaded, {{"status", loaded ? "completed" : "failed"},
                         {"attached", loaded}, {"controller", "presence"}});
                 });
@@ -5941,6 +6070,7 @@ private:
         result["recovery"] = RecoverySnapshot(player);
         result["trade"] = TradeSnapshot(player);
         result["item_use"] = ItemUseSnapshot(player);
+        result["quest_lifecycle"] = QuestLifecycleSnapshot(player);
         result["taxi"] = TaxiSnapshot(player);
         uint32 rollTotal = 0;
         Json::array rolls = LootRollSnapshot(player, rollTotal);
@@ -8123,6 +8253,8 @@ private:
     std::map<WorldSession*, PendingItemUse> _itemUses;
     std::map<WorldSession*, Json::object> _itemUseReceipts;
     std::map<WorldSession*, uint32> _rewardReceipts;
+    std::map<ObjectGuid, QuestLifecycleFrame> _questLifecycle;
+    uint64 _questLifecycleSequence = 0;
     std::map<WorldSession*, CommerceMenu> _vendorMenus;
     std::map<WorldSession*, CommerceMenu> _trainerMenus;
     std::map<WorldSession*, QuestFrame> _questMenus;
@@ -8220,7 +8352,18 @@ public:
 class QuestReceipts : public PlayerScript
 {
 public:
-    QuestReceipts() : PlayerScript("presence_bridge_quest_receipts", {PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST}) { }
+    QuestReceipts() : PlayerScript("presence_bridge_quest_receipts", {
+        PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST, PLAYERHOOK_ON_PLAYER_QUEST_ACCEPT, PLAYERHOOK_ON_QUEST_ABANDON}) { }
+
+    void OnPlayerQuestAccept(Player* player, Quest const* quest) override
+    {
+        Bridge::Instance().QuestAccepted(player, quest);
+    }
+
+    void OnPlayerQuestAbandon(Player* player, uint32 quest) override
+    {
+        Bridge::Instance().QuestAbandoned(player, quest);
+    }
 
     void OnPlayerCompleteQuest(Player* player, Quest const* quest) override
     {

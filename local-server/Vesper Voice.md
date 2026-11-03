@@ -22,27 +22,57 @@ MCP shows **MCP** with model identity unavailable. The game gateway cannot relia
 identify the model making a ChatGPT tool call. Missing or mismatched metadata leaves
 normal chat unlabeled. Standardized emotes are outside this first version.
 
-## Occasional body reports
+## Body speech and factual reports
 
-The body can optionally include a short natural report in an existing gameplay
-decision when fresh typed facts support it. There is no additional model request.
-Useful examples are a measured item sale, stored loot, an equipped item, a learned
-spell, a verified quest reward or a current nontransient action failure.
-An accepted action, an opened menu and a proposed next step do not prove completion.
-One operation does not prove that an entire request is finished.
+The November 2 update lets Qwen optionally speak in an existing gameplay decision.
+He can explain what he intends to try, ask a question, mention a difficulty or
+comment on the world. Ordinary top-level `say` needs no special evidence tag.
+It is his choice; internal `state_update` notes are not automatically spoken.
+There is no additional model request or paid Social call for this speech.
 
-Reports wait for a later fresh, settled, quiet observation. Danger and active
-gameplay take priority, and a pending human reply wins. Only one line can be sent
-in a tick. Reports share the ordinary speech cooldown, have an additional
-60-second report cooldown, and expire after 180 seconds. Recent repeated evidence
-is deduplicated; resolved blockers and superseded equipment reports are discarded.
-The model still decides whether the evidence matters enough to mention.
+Ordinary body lines have a 20-second spacing limit and a 30-second queued lifetime.
+They wait for fresh safe delivery, yield to a pending human reply, and retain
+duplicate suppression. These limits apply to body speech without changing saved
+Social settings. Speech does not replace the chosen gameplay action. Autonomous
+standard emotes remain in the Social lane.
 
-Conversation, personality replies and emotes remain in the Social lane. Internal
-evidence tags, state notes and source labels are not spoken. Body output cannot
-use a recent human line verbatim as Vesper's own report. Speech with an uncertain
-transport result is resolved using its original request identity rather than
-resent under a new one.
+Typed factual reports remain available for verified sales, stored loot, equipment,
+learning, repairs and quest rewards, as well as blockers and trainer-page progress.
+Their evidence tags help bind a statement to an actual operation; they are no
+longer the only route for body speech. An opened trainer menu is inspection, not
+learning. A page containing no trainable spells says nothing about later pages;
+the next-page action and incomplete coverage are explicit in both model lanes.
+The original typed-report cooldown and expiry remain 60 and 180 seconds.
+
+Luna can see delivered body lines in the shared transcript with source metadata
+and timestamps. Those lines are Vesper's statements, not verified mechanical
+facts: a plan, accepted action or spoken claim does not prove completion. Fresh
+native observations and actual receipts remain authoritative. Vesper's own speech
+does not become a new human message that summons another Social reply.
+
+Body output cannot repeat a recent human line verbatim as Vesper's own speech.
+Internal tags and source labels are not spoken. Uncertain delivery is resolved
+with its original request identity rather than resent under a new one.
+
+This ten-file Presence update is installed. **2,971 offline checks passed**;
+the controller resumed with its saved settings and the world server stayed up.
+A frozen local Qwen 4B replay chose the trainer's next page and wrote,
+“Let's see what's on the next page.” It used 3,453 input tokens in about six
+seconds, with thinking off and no proposed game action executed.
+Subsequent live receipts confirmed delivered Qwen party speech at 02:26, 02:27,
+02:31, 02:32 and 02:34 UTC on November 3 (November 2 local time), with Body/local
+`qwen3.5-4b-action` provenance. This verifies actual ordinary body speech.
+The user's November 2 screenshot confirmed the Qwen chip in party chat. Hover
+details and consistent trainer follow-through remain separate checks.
+
+## Quest confirmations
+
+“Quest accepted: …” and “Quest turned in: …” are automatic controller notices
+backed by native success events. They use ordinary party chat without a model
+chip and cost no model call. They do not depend on Qwen or Luna deciding to speak.
+Opening menus, attempted actions and abandoned quests do not trigger them.
+Recent actual acceptance/reward facts also reach both model lanes with their
+timestamps, separately from speech history and the current quest log.
 
 ## Learned abilities
 
