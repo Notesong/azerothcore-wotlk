@@ -1844,6 +1844,7 @@ public:
 
     void setResurrectRequestData(ObjectGuid guid, uint32 mapId, float X, float Y, float Z, uint32 health, uint32 mana)
     {
+        ++m_resurrectRequestRevision;
         m_resurrectGUID = guid;
         m_resurrectMap = mapId;
         m_resurrectX = X;
@@ -1855,6 +1856,21 @@ public:
     void clearResurrectRequestData() { setResurrectRequestData(ObjectGuid::Empty, 0, 0.0f, 0.0f, 0.0f, 0, 0); }
     [[nodiscard]] bool isResurrectRequestedBy(ObjectGuid guid) const { return m_resurrectGUID && m_resurrectGUID == guid; }
     [[nodiscard]] bool isResurrectRequested() const { return m_resurrectGUID; }
+
+    struct ResurrectionRequestData
+    {
+        ObjectGuid caster;
+        uint32 mapId;
+        float x, y, z;
+        uint32 health, mana;
+        uint64 revision;
+    };
+
+    [[nodiscard]] ResurrectionRequestData GetResurrectionRequestData() const
+    {
+        return {m_resurrectGUID, m_resurrectMap, m_resurrectX, m_resurrectY, m_resurrectZ,
+            m_resurrectHealth, m_resurrectMana, m_resurrectRequestRevision};
+    }
     void ResurectUsingRequestData();
 
     [[nodiscard]] uint8 getCinematic() const
@@ -2905,6 +2921,7 @@ protected:
     std::mutex m_soulboundTradableLock;
 
     ObjectGuid m_resurrectGUID;
+    uint64 m_resurrectRequestRevision = 0;
     uint32 m_resurrectMap;
     float m_resurrectX, m_resurrectY, m_resurrectZ;
     uint32 m_resurrectHealth, m_resurrectMana;

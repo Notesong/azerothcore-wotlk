@@ -11,7 +11,8 @@ CURSOR = re.compile(r"[0-9a-f]{32}:(?:0|[1-9][0-9]{0,19})\Z")
 FILTERS = {
     "chat": {"chat"}, "directed_chat": {"chat"}, "directed_emote": {"text_emote"},
     "combat": {"combat_started", "combat_ended"}, "combat_start": {"combat_started"},
-    "combat_stop": {"combat_ended"}, "damage": {"damage"}, "death": {"death", "resurrected"},
+    "combat_stop": {"combat_ended"}, "damage": {"damage"},
+    "death": {"death", "resurrected", "resurrection_offer_changed"},
     "party_separation": {"party_separation", "party_rejoined"}, "arrival": {"arrival", "taxi_arrived"},
     "action_result": {"action_result"},
     "loot_change": {"inventory_changed", "loot_result", "loot_roll_started", "loot_roll_vote", "loot_roll_resolved"},

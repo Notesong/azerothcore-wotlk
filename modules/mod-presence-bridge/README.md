@@ -366,9 +366,32 @@ say, whisper and party messages. Only packets addressed to the bridge-owned
 session are captured; this does not add a global chat listener or widen normal
 chat visibility. `gm_message` records the packet format, not the speaker's
 current in-game GM mode.
-Carried-item use, corpse recovery, coded gossip, auctions and player trade are not
+Carried-item use, coded gossip, auctions and player trade are not
 implemented and are not advertised as capabilities. There are no automatic
 GM grants, resurrection, equipment changes, leveling or combat rotations.
+
+## Real resurrection offers
+
+`recovery.resurrection_offer` exposes a copy of the actor's current normal core
+resurrection request, for either unreleased death or released ghost state.
+The exact `resurrection_respond` action requires `resurrection_offer_id` (32
+lowercase hexadecimal characters), `caster_guid` (decimal string) and `choice`
+(`accept` or `decline`). Use only the advertised current action. A new request
+generation, including an identical replacement from the same caster, invalidates
+the old offer identity. Unknown spell and destination-instance facts stay null.
+
+The bridge rechecks the actual request and invokes the normal
+`HandleResurrectResponseOpcode`; it never grants life directly. Acceptance can
+remain pending while normal teleport acknowledgements and delayed resurrection
+complete. The original request result and `recovery.resurrection_receipt` retain
+the response facts: accept completes only after verified life restoration, while decline completes as a
+decline. Query an uncertain result by its original request UUID instead of
+repeating it. A historical receipt does not authorize another response.
+
+`resurrection_offer_changed` events describe offer lifecycle changes; consumers
+must read fresh recovery state after waking. The controller retains the choice
+to accept, decline, wait or pursue another valid recovery. This action adds no
+GM restore or Spirit Healer penalty and does not change other actors' behavior.
 
 ## Ordinary emotes
 

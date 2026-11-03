@@ -625,8 +625,7 @@ facts immediately; a quest dialog is empty until Vesper opens one normally.
 in Presence when ready to test his choices; installation preserves its stopped or paused setting.
 
 Remaining player-loop work includes targeted quest-item/consumable use, talent
-spending, hearthstone/bind actions, and
-release, corpse reclaim and real resurrection-offer controls. Ordinary game-object
+spending, hearthstone/bind actions, and intentional release. Ordinary game-object
 interaction and known unit-targeted spell casting already exist, but do not cover
 every quest mechanic.
 
@@ -956,10 +955,39 @@ option 0 and the normal confirmation. The activation receipt confirmed
 regenerated to 158. Explicit hand-back restored Full running with Social stopped.
 This verifies chosen Spirit Healer recovery, not autonomous recovery decisions.
 
-Release and acceptance of a real resurrection offer remain unimplemented.
-The full death/recovery/rejoin loop is still incomplete. Continue
-to verify each move and recovery through fresh state and its original receipt;
-Moon protection remains active.
+A real resurrection spell from another character is a separate recovery option.
+`recovery.resurrection_offer` exposes the current server request and its exact
+advertised response actions. Vesper can choose:
+
+```json
+{
+  "type": "resurrection_respond",
+  "resurrection_offer_id": "<current 32-character offer id>",
+  "caster_guid": "<caster GUID from the offer>",
+  "choice": "accept"
+}
+```
+
+Use `"choice": "decline"` to refuse that offer. Copy the exact current offer ID
+and caster; an old offer cannot authorize a replacement, even from the same caster.
+This works for an unreleased dead character or a released ghost. A fresh offer
+wakes recovery planning; receiving it does not automatically accept it.
+
+Acceptance uses the normal player resurrection-response handler, including its
+normal teleport and life restoration. A pending teleport is not yet a successful
+resurrection. Check the original action result, `recovery.resurrection_receipt`
+and fresh life state; resolve an uncertain reply using its original request ID. Declining an
+offer is not a resurrection. The offer's spell or destination instance must stay
+unknown where the core does not record it. There is no GM restore or Spirit
+Healer penalty added by this action.
+
+MCP exposes the same response action, and its existing `death` wait filter also
+covers resurrection-offer changes. Refresh Local Context Gateway after installing
+the updated connector schema if ChatGPT still rejects the new action locally.
+
+Intentional release and the full autonomous death/recovery/rejoin loop remain
+incomplete. Continue to verify each move and recovery through fresh state and
+its original receipt; Moon protection remains active.
 
 **MCP ownership and ghost-navigation update — November 1:** the generation 23
 orphaned lease was released locally and the prior Full controller was restored.
@@ -976,7 +1004,8 @@ receipt completed with `arrived: true`. Fresh observation remained
 3.047 yards from the starting position. Explicit hand-back released the lease
 and restored Full running with Social stopped. This proves remote ownership,
 normal ghost movement and hand-back. The later Spirit Healer test adds normal
-recovery; release, corpse reclaim and real resurrection offers remain open.
+recovery. Own-corpse reclaim and real resurrection responses were added later;
+the full autonomous release/recovery/rejoin loop remains open.
 
 ## Ordinary companion bots and the addon
 

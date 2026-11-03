@@ -230,6 +230,7 @@ def _projection(presence_root: Path) -> Callable[..., dict[str, Any]]:
         "tools.game_player_native_loot_rolls": "game_player_native_loot_rolls.py",
         "tools.game_player_native_taxi": "game_player_native_taxi.py",
         "tools.game_player_native_quest_notices": "game_player_native_quest_notices.py",
+        "tools.game_player_native_resurrection": "game_player_native_resurrection.py",
         "tools.game_player_native_combat": "game_player_native_combat.py",
         "tools.game_player_native_pickup_surroundings": "game_player_native_pickup_surroundings.py",
     }

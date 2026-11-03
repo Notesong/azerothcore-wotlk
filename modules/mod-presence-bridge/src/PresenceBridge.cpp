@@ -44,6 +44,7 @@
 #include "PresenceLootRollPolicy.h"
 #include "PresenceQuestCommand.h"
 #include "PresenceQuestLifecyclePolicy.h"
+#include "PresenceResurrectionPolicy.h"
 #include "PresenceProtectionPolicy.h"
 #include "PresencePickupPolicy.h"
 #include "PresenceTaxiPolicy.h"
@@ -1081,6 +1082,19 @@ struct Actor
     TaxiMenu taxiMenu;
     std::string taxiFlightRequest;
     uint32 taxiAcknowledgedSpline = 0;
+    std::string resurrectionRequest;
+    uint64 resurrectionRevision = 0;
+    std::chrono::steady_clock::time_point resurrectionDeadline;
+};
+
+struct ResurrectionOfferFrame
+{
+    Player::ResurrectionRequestData data;
+    std::string id;
+    std::string casterName;
+    std::string receivedAt;
+    std::chrono::steady_clock::time_point received;
+    bool consumed = false;
 };
 
 struct QuestLifecycleFrame
@@ -1453,6 +1467,7 @@ public:
                         "trainer_list", "train_spell", "equip_item", "unequip_item", "inspect_item", "use_item",
                         "gossip_select",
                         "spirit_healer_activate", "reclaim_corpse", "taxi_list", "taxi_start",
+                        "resurrection_respond",
                         "vendor_buyback", "trade_begin", "trade_accept", "trade_unaccept", "trade_cancel"}},
                     {"loot", Json::object{{"target_types", Json::array{"creature_corpse", "gameobject_chest"}},
                         {"operation", "open_loot"}, {"async_opening", true}}},
@@ -1463,6 +1478,9 @@ public:
                         {"start_required", Json::array{"type", "target_guid", "taxi_menu_id", "destination_node_id"}},
                         {"scope", "ordinary_known_faction_network"}, {"paid_start_receipt", "original_request_uuid"},
                         {"arrival", "observed_native_flight_completion"}, {"menu_lifetime_sec", 60}}},
+                    {"resurrection", Json::object{{"required", Json::array{"type", "resurrection_offer_id",
+                        "caster_guid", "choice"}}, {"choices", Json::array{"accept", "decline"}},
+                        {"scope", "actual_current_native_request"}, {"acceptance_is_recovery", false}}},
                     {"item_use", Json::object{{"scope", "self_restoration_v1"},
                         {"required", Json::array{"type", "item_guid"}}, {"additional_fields", false},
                         {"async_receipt", true}, {"target_mode", "self"}}},
@@ -1481,6 +1499,13 @@ public:
                         bool ok = Text(paid->second.receipt, "status") != "failed";
                         return Response(request, true, {{"request_id", original},
                             {"response", Response(envelope, ok, paid->second.receipt)}});
+                    }
+                    if (auto receipt = ResurrectionReceipt(original))
+                    {
+                        Json::object envelope{{"v", 1}, {"id", original}, {"op", "action"},
+                            {"character", Text(*receipt, "character")}};
+                        return Response(request, true, {{"request_id", original},
+                            {"response", Response(envelope, Text(*receipt, "status") != "failed", *receipt)}});
                     }
                     return Error(request, "unknown_request", "Request is not in the bounded result cache");
                 }
@@ -1510,6 +1535,23 @@ public:
                         || proposed->as_object() != paid->second.action)
                         return Error(request, "id_conflict", "Original paid-flight UUID has another action identity");
                     return Response(request, Text(paid->second.receipt, "status") != "failed", paid->second.receipt);
+                }
+            if (op == "action")
+                if (auto receipt = ResurrectionReceipt(id))
+                {
+                    auto proposed = request.if_contains("action");
+                    bool matching = proposed && proposed->is_object() && Text(*receipt, "character") == name;
+                    if (matching)
+                    {
+                        auto const& action = proposed->as_object();
+                        matching = action.size() == 4 && Text(action, "type") == "resurrection_respond"
+                            && Text(action, "resurrection_offer_id") == Text(*receipt, "resurrection_offer_id")
+                            && Text(action, "caster_guid") == Text(*receipt, "caster_guid")
+                            && Text(action, "choice") == Text(*receipt, "choice");
+                    }
+                    if (!matching)
+                        return Error(request, "id_conflict", "Original resurrection UUID has another action identity");
+                    return Response(request, Text(*receipt, "status") != "failed", *receipt);
                 }
             Json::object response;
             if (op == "create" || op == "attach")
@@ -1559,7 +1601,7 @@ public:
             "damage", "death", "resurrected", "area_changed", "quest_changed", "inventory_changed",
             "party_separation", "party_rejoined", "arrival", "action_result", "loot_result",
             "loot_roll_started", "loot_roll_vote", "loot_roll_resolved", "taxi_node_learned",
-            "taxi_menu_opened", "taxi_started", "taxi_arrived", "taxi_interrupted"};
+            "taxi_menu_opened", "taxi_started", "taxi_arrived", "taxi_interrupted", "resurrection_offer_changed"};
         return types;
     }
 
@@ -2309,15 +2351,25 @@ public:
             if (!player)
                 continue;
             if (player->IsBeingTeleportedFar())
+            {
                 actor->session->HandleMoveWorldportAck();
+                player = actor->session->GetPlayer();
+                if (!player)
+                    continue;
+            }
             if (player->IsBeingTeleportedNear())
             {
                 WorldPacket packet(MSG_MOVE_TELEPORT_ACK, 20);
                 packet << player->GetPackGUID() << uint32(0) << uint32(0);
                 actor->session->HandleMoveTeleportAck(packet);
+                player = actor->session->GetPlayer();
+                if (!player)
+                    continue;
             }
             if (actor->phase == "ready")
             {
+                ProcessResurrectionResponse(*actor, player);
+                RefreshResurrectionOffer(player);
                 RefreshQuestLifecycleBaseline(player);
                 ProcessTaxi(*actor, player);
                 if (player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT))
@@ -2832,11 +2884,252 @@ public:
         return result;
     }
 
+    std::optional<ResurrectionOfferFrame> ResurrectionFrame(Player* player)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        auto found = _resurrectionOffers.find(player->GetSession());
+        return found == _resurrectionOffers.end() ? std::nullopt
+            : std::optional<ResurrectionOfferFrame>(found->second);
+    }
+
+    bool ResurrectionFrameCurrent(Player* player, ResurrectionOfferFrame const& frame, bool allowConsumed = false)
+    {
+        auto current = player->GetResurrectionRequestData();
+        return ResurrectionOfferCurrent(frame.data.caster.GetRawValue(), frame.data.revision,
+            current.caster.GetRawValue(), current.revision, player->isResurrectRequested(), player->IsAlive(),
+            frame.consumed && !allowConsumed);
+    }
+
+    void CaptureResurrectionOffer(WorldSession* session, WorldPacket const& packet)
+    {
+        if (packet.GetOpcode() != SMSG_RESURRECT_REQUEST || packet.size() < 8)
+            return;
+        Player* player = session->GetPlayer();
+        auto data = player->GetResurrectionRequestData();
+        WorldPacket copy(packet);
+        ObjectGuid caster;
+        copy >> caster;
+        if (!data.revision || data.caster != caster || !player->isResurrectRequestedBy(caster) || player->IsAlive())
+            return;
+        ResurrectionOfferFrame frame;
+        frame.data = data;
+        frame.received = std::chrono::steady_clock::now();
+        frame.receivedAt = Timestamp();
+        for (uint8 index = 0; index < 4; ++index)
+            frame.id += SpeechHex(urand(0, 0xFFFFFFFF), 8);
+        if (caster.IsPlayer())
+            sCharacterCache->GetCharacterNameByGuid(caster, frame.casterName);
+        else if (Unit* unit = ObjectAccessor::GetUnit(*player, caster))
+            frame.casterName = unit->GetName();
+        bool replaced = false;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            if (!_ownedSessions.contains(session))
+                return;
+            if (auto prior = _resurrectionOffers.find(session); prior != _resurrectionOffers.end())
+            {
+                // A retransmitted packet for the exact request is not a new offer.
+                if (prior->second.data.revision == data.revision)
+                    return;
+                replaced = true;
+            }
+            _resurrectionOffers[session] = frame;
+        }
+        RecordEvent(session, {{"type", "resurrection_offer_changed"}, {"state", replaced ? "replaced" : "offered"},
+            {"resurrection_offer_id", frame.id}, {"caster_guid", std::to_string(caster.GetRawValue())},
+            {"request_revision", std::to_string(data.revision)}});
+    }
+
+    void RefreshResurrectionOffer(Player* player)
+    {
+        auto frame = ResurrectionFrame(player);
+        if (!frame || ResurrectionFrameCurrent(player, *frame, true))
+            return;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _resurrectionOffers.find(player->GetSession());
+            if (found == _resurrectionOffers.end() || found->second.id != frame->id)
+                return;
+            _resurrectionOffers.erase(found);
+        }
+        RecordEvent(player->GetSession(), {{"type", "resurrection_offer_changed"}, {"state", "cleared"},
+            {"resurrection_offer_id", frame->id}, {"caster_guid", std::to_string(frame->data.caster.GetRawValue())},
+            {"reason", player->IsAlive() ? "character_alive" : "native_request_changed_or_cleared"}});
+    }
+
+    Json::value ResurrectionOfferSnapshot(Player* player)
+    {
+        auto frame = ResurrectionFrame(player);
+        if (!frame)
+            return nullptr;
+        bool available = ResurrectionFrameCurrent(player, *frame) && !player->IsBeingTeleported()
+            && !player->HasPreventResurectionAura();
+        auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - frame->received).count();
+        std::string caster = std::to_string(frame->data.caster.GetRawValue());
+        Json::array actions;
+        if (available)
+            for (char const* choice : {"accept", "decline"})
+                actions.emplace_back(Json::object{{"type", "resurrection_respond"},
+                    {"resurrection_offer_id", frame->id}, {"caster_guid", caster}, {"choice", choice}});
+        return Json::object{{"resurrection_offer_id", frame->id}, {"caster_guid", caster},
+            {"caster_name", frame->casterName.empty() ? Json::value(nullptr) : Json::value(frame->casterName)},
+            {"caster_is_player", frame->data.caster.IsPlayer()}, {"spell_id", nullptr}, {"spell_name", nullptr},
+            {"source", "normal_resurrection_request"}, {"request_revision", std::to_string(frame->data.revision)},
+            {"received_at", frame->receivedAt}, {"age_ms", std::max<int64>(age, 0)},
+            {"expires_at", nullptr}, {"remaining_ms", nullptr}, {"expiry_policy", "native_request_has_no_timeout"},
+            {"restore_health", frame->data.health}, {"restore_mana", frame->data.mana},
+            {"destination", Json::object{{"map_id", frame->data.mapId}, {"x", frame->data.x},
+                {"y", frame->data.y}, {"z", frame->data.z}, {"instance_id", nullptr}}},
+            {"available", available}, {"blocked_reason", available ? "" : frame->consumed ? "response_dispatched"
+                : player->HasPreventResurectionAura() ? "resurrection_prevented" : "native_request_not_ready"},
+            {"next_actions", std::move(actions)}};
+    }
+
+    void SaveResurrectionReceipt(WorldSession* session, Json::object const& receipt)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        _resurrectionReceipts[session] = receipt;
+    }
+
+    std::optional<Json::object> ResurrectionReceipt(std::string const& id)
+    {
+        std::lock_guard<std::mutex> lock(_eventMutex);
+        for (auto const& [session, receipt] : _resurrectionReceipts)
+            if (_ownedSessions.contains(session) && Text(receipt, "request_id") == id)
+                return receipt;
+        return std::nullopt;
+    }
+
+    void ProcessResurrectionResponse(Actor& actor, Player* player)
+    {
+        if (actor.resurrectionRequest.empty())
+            return;
+        Json::object receipt;
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _resurrectionReceipts.find(actor.session.get());
+            if (found == _resurrectionReceipts.end())
+                return;
+            receipt = found->second;
+        }
+        bool recovered = ResurrectionRecoveryComplete(true, player->IsAlive(), IsReleasedGhost(player),
+            player->IsBeingTeleported());
+        bool replaced = player->GetResurrectionRequestData().revision != actor.resurrectionRevision;
+        if (!recovered && (player->IsBeingTeleported() || !replaced))
+        {
+            if (std::chrono::steady_clock::now() > actor.resurrectionDeadline)
+            {
+                receipt["phase"] = "outcome_unknown";
+                SaveResurrectionReceipt(actor.session.get(), receipt);
+            }
+            return;
+        }
+        receipt["status"] = recovered ? "completed" : "failed";
+        receipt["phase"] = recovered ? "recovered" : "native_request_replaced";
+        receipt["pending"] = false;
+        receipt["terminal"] = true;
+        receipt["recovered"] = recovered;
+        receipt["alive_after"] = player->IsAlive();
+        receipt["is_ghost_after"] = IsReleasedGhost(player);
+        receipt["health_after"] = player->GetHealth();
+        receipt["mana_after"] = player->GetPower(POWER_MANA);
+        receipt["position_after"] = PositionOf(player);
+        SaveResurrectionReceipt(actor.session.get(), receipt);
+        Finish(actor.resurrectionRequest, recovered, receipt);
+        actor.resurrectionRequest.clear();
+    }
+
+    Json::object ResurrectionResponseAction(Json::object const& request, Json::object const& action,
+        Actor& actor, Player* player)
+    {
+        for (auto const& field : action)
+            if (field.key() != "type" && field.key() != "resurrection_offer_id"
+                && field.key() != "caster_guid" && field.key() != "choice")
+                return Error(request, "invalid_resurrection_response", "Use only the exact current offer fields");
+        ResurrectionChoice choice = ParseResurrectionChoice(Text(action, "choice"));
+        std::string offer = Text(action, "resurrection_offer_id");
+        ObjectGuid caster(GuidNumber(action, "caster_guid"));
+        if (!ValidJournalEpoch(offer) || !caster || choice == ResurrectionChoice::Invalid)
+            return Error(request, "invalid_resurrection_response",
+                "Select accept or decline for an exact current offer");
+        RefreshResurrectionOffer(player);
+        auto frame = ResurrectionFrame(player);
+        if (!frame || frame->id != offer || frame->data.caster != caster || !ResurrectionFrameCurrent(player, *frame))
+            return Error(request, "stale_resurrection_offer",
+                "This is not the character's current native resurrection request");
+        if (player->HasPreventResurectionAura())
+            return Error(request, "resurrection_prevented",
+                "The normal resurrection response handler is currently blocked");
+        if (!actor.resurrectionRequest.empty())
+            return Error(request, "resurrection_response_pending", "Resolve the original resurrection response UUID");
+        std::string id = Text(request, "id");
+        Json::object receipt{{"operation", "resurrection_respond"}, {"request_id", id},
+            {"character", player->GetName()},
+            {"resurrection_offer_id", offer}, {"caster_guid", std::to_string(caster.GetRawValue())},
+            {"choice", Text(action, "choice")}, {"status", "accepted"}, {"phase", "normal_response_dispatched"},
+            {"pending", true}, {"terminal", false}, {"recovered", false}, {"declined", false},
+            {"alive_after", false}, {"is_ghost_after", IsReleasedGhost(player)}, {"response_dispatched", true}};
+        {
+            std::lock_guard<std::mutex> lock(_eventMutex);
+            auto found = _resurrectionOffers.find(actor.session.get());
+            if (found == _resurrectionOffers.end() || found->second.id != offer || found->second.consumed)
+                return Error(request, "stale_resurrection_offer", "The current offer was already consumed or replaced");
+            found->second.consumed = true;
+            _resurrectionReceipts[actor.session.get()] = receipt;
+        }
+        if (choice == ResurrectionChoice::Accept)
+        {
+            // Fence the original UUID before dispatch; exceptions afterward leave recovery reserved.
+            actor.resurrectionRequest = id;
+            actor.resurrectionRevision = frame->data.revision;
+            actor.resurrectionDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
+            // A chosen resurrection must not resume the previous ghost point or follow motion afterward.
+            ClearCosmeticEmote(actor, player);
+            player->GetMotionMaster()->Clear();
+            player->StopMoving();
+            if (!actor.motionId.empty())
+                Finish(actor.motionId, false, {{"status", "failed"}, {"reason", "superseded_by_resurrection"}});
+            actor.motionId.clear();
+        }
+        WorldPacket packet(CMSG_RESURRECT_RESPONSE, 9);
+        packet << caster << uint8(choice);
+        actor.session->HandleResurrectResponseOpcode(packet);
+        bool recovered = ResurrectionRecoveryComplete(true, player->IsAlive(), IsReleasedGhost(player),
+            player->IsBeingTeleported());
+        bool declined = choice == ResurrectionChoice::Decline && !player->isResurrectRequested();
+        bool pending = choice == ResurrectionChoice::Accept && player->IsBeingTeleported();
+        receipt["status"] = pending ? "accepted" : recovered || declined ? "completed" : "failed";
+        receipt["phase"] = pending ? "awaiting_native_recovery" : recovered ? "recovered"
+            : declined ? "declined" : "normal_handler_did_not_verify_response";
+        receipt["pending"] = pending;
+        receipt["terminal"] = !pending;
+        receipt["recovered"] = recovered;
+        receipt["declined"] = declined;
+        receipt["alive_after"] = player->IsAlive();
+        receipt["is_ghost_after"] = IsReleasedGhost(player);
+        receipt["health_after"] = player->GetHealth();
+        receipt["mana_after"] = player->GetPower(POWER_MANA);
+        receipt["position_after"] = PositionOf(player);
+        SaveResurrectionReceipt(actor.session.get(), receipt);
+        if (!pending)
+            actor.resurrectionRequest.clear();
+        RefreshResurrectionOffer(player);
+        if (pending || recovered || declined)
+            return Response(request, true, std::move(receipt));
+        auto response = Error(request, "resurrection_response_failed",
+            "The normal handler did not verify the requested recovery or decline");
+        response["result"] = std::move(receipt);
+        return response;
+    }
+
     Json::object RecoverySnapshot(Player* player)
     {
         RefreshSpiritHealerFrames(player);
+        RefreshResurrectionOffer(player);
         Json::object result{{"is_ghost", IsReleasedGhost(player)}, {"corpse", CorpseReclaimSnapshot(player)},
-            {"spirit_healer_confirmation", nullptr}, {"receipt", nullptr}};
+            {"spirit_healer_confirmation", nullptr}, {"receipt", nullptr},
+            {"resurrection_offer", ResurrectionOfferSnapshot(player)}, {"resurrection_receipt", nullptr}};
         std::lock_guard<std::mutex> lock(_eventMutex);
         if (auto found = _spiritHealerConfirmations.find(player->GetSession());
             found != _spiritHealerConfirmations.end())
@@ -2851,6 +3144,8 @@ public:
         }
         if (auto found = _spiritRecoveryReceipts.find(player->GetSession()); found != _spiritRecoveryReceipts.end())
             result["receipt"] = found->second;
+        if (auto found = _resurrectionReceipts.find(player->GetSession()); found != _resurrectionReceipts.end())
+            result["resurrection_receipt"] = found->second;
         return result;
     }
 
@@ -4006,6 +4301,7 @@ public:
         Player* player = session->GetPlayer();
         if (!player || !session->IsHeadless())
             return;
+        CaptureResurrectionOffer(session, packet);
         if (CurrentTaxiPacket && CurrentTaxiPacket->session == session)
         {
             if (packet.GetOpcode() == SMSG_NEW_TAXI_PATH)
@@ -4221,7 +4517,7 @@ public:
             }
         }
         else if (type == "loot_roll_started" || type == "loot_roll_vote" || type == "loot_roll_resolved"
-            || type == "quest_changed")
+            || type == "quest_changed" || type == "resurrection_offer_changed")
         {
             Json::object payload = event;
             payload.erase("type");
@@ -5206,6 +5502,8 @@ private:
         _spiritHealerMenus.erase(session);
         _spiritHealerConfirmations.erase(session);
         _spiritRecoveryReceipts.erase(session);
+        _resurrectionOffers.erase(session);
+        _resurrectionReceipts.erase(session);
     }
 
     void ClearCosmeticEmote(Actor& actor, Player* player)
@@ -7273,12 +7571,47 @@ private:
         }
         catch (std::exception const& exception)
         {
-            if (context.action != "taxi_start")
+            if (context.action == "resurrection_respond")
+            {
+                auto receipt = ResurrectionReceipt(context.request);
+                response = receipt ? Response(request, Text(*receipt, "status") != "failed", *receipt)
+                    : Error(request, "invalid_resurrection_response", exception.what());
+            }
+            else if (context.action != "taxi_start")
                 throw;
-            auto paid = _taxiOperations.find(context.request);
-            response = paid == _taxiOperations.end()
-                ? Error(request, "invalid_taxi_action", exception.what())
-                : Response(request, Text(paid->second.receipt, "status") != "failed", paid->second.receipt);
+            else
+            {
+                auto paid = _taxiOperations.find(context.request);
+                response = paid == _taxiOperations.end()
+                    ? Error(request, "invalid_taxi_action", exception.what())
+                    : Response(request, Text(paid->second.receipt, "status") != "failed", paid->second.receipt);
+            }
+        }
+        if (context.action == "resurrection_respond")
+        {
+            auto& result = response.at("result").as_object();
+            if (!result.if_contains("operation"))
+            {
+                auto const& action = request.at("action").as_object();
+                result["operation"] = "resurrection_respond";
+                result["request_id"] = Text(request, "id");
+                for (char const* key : {"resurrection_offer_id", "caster_guid", "choice"})
+                    result[key] = action.if_contains(key) ? action.at(key) : Json::value(nullptr);
+                result["status"] = "failed";
+                result["phase"] = "rejected";
+                result["pending"] = false;
+                result["terminal"] = true;
+                result["recovered"] = false;
+                result["declined"] = false;
+                result["response_dispatched"] = false;
+                Player* player = nullptr;
+                if (auto actor = _actors.find(name); actor != _actors.end())
+                    player = actor->second->session->GetPlayer();
+                result["alive_after"] = player ? Json::value(player->IsAlive()) : Json::value(nullptr);
+                result["is_ghost_after"] = player ? Json::value(IsReleasedGhost(player)) : Json::value(nullptr);
+                result["reason"] = response.if_contains("error")
+                    ? Text(response.at("error").as_object(), "code") : "preflight_rejected";
+            }
         }
         if (context.action == "taxi_start")
         {
@@ -7341,6 +7674,10 @@ private:
             return LootRollAction(request, action, actor, player);
         if (type == "taxi_list" || type == "taxi_start")
             return TaxiAction(request, action, actor, player);
+        if (type == "resurrection_respond")
+            return ResurrectionResponseAction(request, action, actor, player);
+        if (!actor.resurrectionRequest.empty() && type != "say" && type != "emote")
+            return Error(request, "resurrection_response_pending", "Native recovery is awaiting its normal completion");
         if (type != "say" && type != "emote"
             && (player->IsInFlight() || player->HasUnitFlag(UNIT_FLAG_TAXI_FLIGHT)
                 || !PendingTaxiRequest(name).empty()))
@@ -8265,6 +8602,8 @@ private:
     std::map<WorldSession*, SpiritHealerFrame> _spiritHealerMenus;
     std::map<WorldSession*, SpiritHealerFrame> _spiritHealerConfirmations;
     std::map<WorldSession*, Json::object> _spiritRecoveryReceipts;
+    std::map<WorldSession*, ResurrectionOfferFrame> _resurrectionOffers;
+    std::map<WorldSession*, Json::object> _resurrectionReceipts;
     std::map<WorldSession*, PartyInvite> _partyInvites;
     std::map<WorldSession*, TradeFrame> _tradeFrames;
     std::map<WorldSession*, SharedQuestOffer> _questShares;

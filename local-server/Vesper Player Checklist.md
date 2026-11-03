@@ -414,7 +414,11 @@ above; new-point discovery and cross-map continuation remain unchecked.
   and adds no GM shortcut or Spirit Healer resurrection sickness/durability penalty.
 - [x] Verify a chosen live normal reclaim at about 31.684 yards: alive false → true, ghost true → false,
   health 1 → 101 of 202 and no remaining resurrectable corpse. The receipt verifies this mechanical action.
-- [ ] Add intentional release and exposed acceptance of a real resurrection offer, with appropriate recovery choices.
+- [x] Expose a real current resurrection offer and choose normal accept or decline through Full and MCP.
+  Bind responses to the exact offer generation and caster, retain original request identity, and verify actual
+  life restoration after normal teleport acknowledgement. Decline is distinct from recovered; no GM restore.
+- [ ] Verify an actual priest/player resurrection offer and chosen acceptance during ordinary play.
+- [ ] Add intentional release, with appropriate recovery choices.
 - [ ] Demonstrate autonomous recovery choice, rejoin the party and restore the chosen goal; report when recovery is
   blocked. No automatic resurrection or GM shortcut is provided; the direct Spirit Healer and corpse tests are
   mechanical checks rather than proof of autonomous recovery judgment.
@@ -624,7 +628,8 @@ receipt completed with `arrived: true`. Fresh observation remained
 3.047 yards from the starting position. Explicit hand-back released the lease
 and restored Full running with Social stopped. This proves remote ownership,
 normal ghost movement and hand-back. The later Spirit Healer check above adds
-normal recovery; release, corpse reclaim and real resurrection offers remain open.
+normal recovery. Own-corpse reclaim and real resurrection responses were added later;
+the full autonomous release/recovery/rejoin loop remains open.
 
 November 1: normal trade completion was verified for three incoming items and
 600 copper, including actual inventory and money changes. Trade opening,

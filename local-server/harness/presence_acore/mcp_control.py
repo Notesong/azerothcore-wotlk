@@ -215,6 +215,34 @@ class McpControlManager:
             or result.get('status') == 'accepted' and result.get('pending') is True
                 and result.get('terminal') is False and result.get('arrived') is False)
 
+    @staticmethod
+    def _resurrection_valid_result(record: dict[str, Any], result: Any) -> bool:
+        action = record.get('request', {}).get('action', {})
+        if (not isinstance(result, dict) or result.get('operation') != 'resurrection_respond'
+                or result.get('request_id') != record.get('operation_id')
+                or any(type(result.get(key)) is not type(action.get(key)) or result.get(key) != action.get(key)
+                    for key in ('resurrection_offer_id', 'caster_guid', 'choice'))
+                or any(type(result.get(key)) is not bool for key in
+                    ('pending', 'terminal', 'recovered', 'declined'))):
+            return False
+        status = result.get('status')
+        if any(type(result.get(key)) is not bool and not (status == 'failed' and result.get(key) is None)
+                for key in ('alive_after', 'is_ghost_after')):
+            return False
+        if status == 'accepted':
+            return (result['pending'] and not result['terminal'] and not result['recovered']
+                and not result['declined'])
+        if result['pending'] or not result['terminal']:
+            return False
+        if status == 'failed':
+            return not result['recovered'] and not result['declined']
+        if status != 'completed':
+            return False
+        if action['choice'] == 'decline':
+            return result['declined'] and not result['recovered']
+        return (result['recovered'] and result['alive_after'] and not result['is_ghost_after']
+            and not result['declined'])
+
     def _pending_taxi(self) -> str | None:
         # The prepared receipt is durable before dispatch. Use it as the fence,
         # including after a crash, handback or a new transport/generation. A
@@ -614,10 +642,12 @@ class McpControlManager:
                     raise ControlError('invalid_response')
                 if wire['type'] == 'taxi_start' and not self._taxi_valid_result(record, result):
                     raise ControlError('invalid_response')
+                if wire['type'] == 'resurrection_respond' and not self._resurrection_valid_result(record, result):
+                    raise ControlError('invalid_response')
                 response = {'available': True, 'character': CHARACTER, 'operation_id': operation_id,
                     'request_id': operation_id, 'action_type': wire['type'], 'status': result.get('status', 'unknown'),
                     'result': result, 'outcome_uncertain': result.get('status') not in {'accepted', 'completed', 'failed'}}
-                if wire['type'] == 'taxi_start' and result.get('phase') == 'outcome_unknown':
+                if wire['type'] in {'taxi_start', 'resurrection_respond'} and result.get('phase') == 'outcome_unknown':
                     response['outcome_uncertain'] = True
             except Exception as error:
                 code = getattr(error, 'code', 'bridge_error')
@@ -658,10 +688,13 @@ class McpControlManager:
                 action_type = record['request']['action']['type']
                 # Taxi rejections carry their exact terminal identity in result
                 # even when the normal game envelope is unsuccessful.
-                result = envelope.get('result') if envelope['ok'] or action_type == 'taxi_start' else envelope.get('error')
+                bound_result = action_type in {'taxi_start', 'resurrection_respond'}
+                result = envelope.get('result') if envelope['ok'] or bound_result else envelope.get('error')
                 if not isinstance(result, dict) or result.get('request_id', operation_id) != operation_id:
                     raise ControlError('mismatched_action_result')
                 if action_type == 'taxi_start' and not self._taxi_valid_result(record, result):
+                    raise ControlError('mismatched_action_result')
+                if action_type == 'resurrection_respond' and not self._resurrection_valid_result(record, result):
                     raise ControlError('mismatched_action_result')
                 if result.get('action_type', action_type) != action_type:
                     raise ControlError('mismatched_action_result')
@@ -674,10 +707,10 @@ class McpControlManager:
                     'request_id': operation_id, 'action_type': action_type,
                     'status': status, 'outcome_uncertain': status not in {'accepted', 'completed', 'failed'},
                     'result': result, 'resolution': 'original_request_result'}
-                if action_type == 'taxi_start' and result.get('phase') == 'outcome_unknown':
+                if bound_result and result.get('phase') == 'outcome_unknown':
                     resolved['outcome_uncertain'] = True
                 if not envelope['ok']:
-                    error = envelope.get('error', result) if action_type == 'taxi_start' else result
+                    error = envelope.get('error', result) if bound_result else result
                     if isinstance(error, dict) and isinstance(error.get('guard_interventions'), list):
                         error = {**error, 'guard_interventions': [item for item in error['guard_interventions']
                             if isinstance(item, dict) and item.get('request_id') == operation_id

@@ -30,6 +30,8 @@ _spec('follow', {'target_guid': _GUID}, {'distance': {'type': 'number', 'minimum
 _spec('target', {'target_guid': {'type': 'string', 'pattern': '^(0|[1-9][0-9]{0,19})$'}})
 for _name in ('attack', 'interact', 'loot', 'spirit_healer_activate', 'reclaim_corpse'):
     _spec(_name, {'target_guid': _GUID})
+_spec('resurrection_respond', {'resurrection_offer_id': {'type': 'string', 'pattern': '^[a-f0-9]{32}$'},
+    'caster_guid': _GUID, 'choice': {'enum': ['accept', 'decline']}})
 _spec('cast', {'target_guid': _GUID, 'spell_id': _POSITIVE})
 _spec('use_item', {'item_guid': _GUID})
 _spec('taxi_list', {'target_guid': _GUID})
@@ -76,7 +78,7 @@ def _valid(value: Any, field: str, spec: dict[str, Any]) -> bool:
     if 'enum' in spec:
         return value in spec['enum'] and isinstance(value, str)
     kind = spec.get('type')
-    if field in {'roll_id', 'taxi_menu_id'}:
+    if field in {'roll_id', 'taxi_menu_id', 'resurrection_offer_id'}:
         return isinstance(value, str) and re.fullmatch(r'[a-f0-9]{32}', value) is not None
     if field.endswith('_guid') or field == 'trade_id':
         if not isinstance(value, str) or not value.isascii() or not value.isdecimal():

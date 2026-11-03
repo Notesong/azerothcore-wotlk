@@ -132,9 +132,8 @@ a reliable action link remain execution telemetry, not attributed planner choice
 
 ## Deliberate continuity
 
-Both native planners must bind explicitly to the intended local Presence profile.
-Select its private identifier locally; no profile identifiers or profile data
-are distributed in this source backup. At process startup they import the existing
+Both native planners bind explicitly to the unique Presence profile named Vesper
+(`8fc9926b-b861-4bb3-8710-f05cd7fc7336`). At process startup they import the existing
 privacy-filtered identity context and permitted memories, with a source receipt
 and a frozen cutoff. They do not infer the active UI conversation. No source
 thread is bound yet, so thread-scoped relationship/chat context is not imported.
@@ -216,6 +215,18 @@ stay stopped. A confirmed transport disconnect also attempts cleanup. Ending a
 ChatGPT turn is not a detectable transport event. The local model cannot resume
 while a manual lease remains active. Persistent native movement/melee continues
 until replaced or stopped. Inspection and waits never invoke a paid model.
+
+Normal player resurrection offers are exposed in `recovery.resurrection_offer`,
+including their exact opaque offer ID, caster GUID, stored destination, restoration
+amounts and advertised choices. `resurrection_respond` requires exactly
+`resurrection_offer_id`, `caster_guid` and `choice` (`accept` or `decline`). The
+caster need not be visible. The native request has no fabricated timeout, and a
+replacement offer has a new identity even when its caster is unchanged. Acceptance
+remains pending until normal server acknowledgement and actual life state confirm
+recovery; a completed decline is not resurrection. Resolve an uncertain response
+with its original operation UUID rather than sending a new one. The existing
+`death` event filter also wakes on `resurrection_offer_changed`, then returns a
+fresh snapshot. MCP takeover and the ordinary game rules still apply.
 
 Full request recording begins at the next actual model HTTP request after this
 update. Historic dynamic-only logs cannot be turned into exact HTTP captures.
