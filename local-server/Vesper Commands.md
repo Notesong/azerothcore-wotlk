@@ -981,6 +981,15 @@ offer is not a resurrection. The offer's spell or destination instance must stay
 unknown where the core does not record it. There is no GM restore or Spirit
 Healer penalty added by this action.
 
+To request the spell from a living priest companion, use
+`/w Edgalin cast Resurrection on Vesper`, replacing Edgalin with the priest's name.
+Alternatively, select Vesper and whisper `/w Edgalin cast Resurrection`.
+On November 3, Edgalin's real offer was accepted: the native receipt confirmed
+`choice: accept`, `status: completed`, `recovered: true`, `alive_after: true` and
+`is_ghost_after: false`, with 70 health immediately after recovery. A later fresh
+snapshot showed Vesper alive at 286/286 health. This verifies receiving and
+accepting a real resurrection; the broader recovery journey remains separate.
+
 MCP exposes the same response action, and its existing `death` wait filter also
 covers resurrection-offer changes. Refresh Local Context Gateway after installing
 the updated connector schema if ChatGPT still rejects the new action locally.

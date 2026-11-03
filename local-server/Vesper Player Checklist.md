@@ -417,7 +417,10 @@ above; new-point discovery and cross-map continuation remain unchecked.
 - [x] Expose a real current resurrection offer and choose normal accept or decline through Full and MCP.
   Bind responses to the exact offer generation and caster, retain original request identity, and verify actual
   life restoration after normal teleport acknowledgement. Decline is distinct from recovered; no GM restore.
-- [ ] Verify an actual priest/player resurrection offer and chosen acceptance during ordinary play.
+- [x] Verify an actual priest/player resurrection offer and chosen acceptance during ordinary play.
+  November 3: Edgalin cast Resurrection on Vesper. The native response receipt confirmed accepted/completed,
+  recovered true, alive true and ghost false, with 70 health immediately after recovery. A fresh snapshot later
+  showed Vesper alive at 286/286. The priest command is `/w Edgalin cast Resurrection on Vesper`.
 - [ ] Add intentional release, with appropriate recovery choices.
 - [ ] Demonstrate autonomous recovery choice, rejoin the party and restore the chosen goal; report when recovery is
   blocked. No automatic resurrection or GM shortcut is provided; the direct Spirit Healer and corpse tests are

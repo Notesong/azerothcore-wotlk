@@ -258,6 +258,20 @@ For Vesper, the separate fixed command is `/p Vesper drop quest QUEST_LINK`.
 
 ## Death and recovery
 
+To ask a living priest companion to resurrect Vesper, whisper the caster:
+
+```text
+/w Edgalin cast Resurrection on Vesper
+```
+
+Replace `Edgalin` with your priest's name. Alternatively, select Vesper and whisper
+`/w Edgalin cast Resurrection`. A real spell link can replace the spell name;
+literal `[target]` is not a required keyword. The priest must know the spell and
+meet its normal casting requirements. Vesper then chooses whether to accept the
+real offer. This was verified during ordinary play on November 3.
+
+The commands below instead control the named bot's own recovery:
+
 | Whisper | What it does |
 | --- | --- |
 | `/w BotName release` | Release the spirit if dead. If alive, this command can set stay instead. |
